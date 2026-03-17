@@ -1,4 +1,0 @@
-module GCDWebServer {
-    umbrella header "/Users/mstralka/dev/kazaamprojects/GCDWebServer/GCDWebServer/include/GCDWebServer.h"
-    export *
-}
