@@ -1,0 +1,36 @@
+// swift-tools-version:5.9
+
+import PackageDescription
+
+let package = Package(
+    name: "GCDWebServer",
+    platforms: [
+        .iOS(.v13),
+        .macOS(.v10_15),
+        .tvOS(.v13)
+    ],
+    products: [
+        .library(
+            name: "GCDWebServer",
+            targets: ["GCDWebServer"]
+        )
+    ],
+    targets: [
+        .target(
+            name: "GCDWebServer",
+            path: "GCDWebServer",
+            publicHeadersPath: "Core",
+            cSettings: [
+                .headerSearchPath("Core"),
+                .headerSearchPath("Requests"),
+                .headerSearchPath("Responses")
+            ],
+            linkerSettings: [
+                .linkedLibrary("z"),
+                .linkedFramework("CoreServices", .when(platforms: [.iOS, .tvOS])),
+                .linkedFramework("CFNetwork", .when(platforms: [.iOS, .tvOS])),
+                .linkedFramework("SystemConfiguration", .when(platforms: [.macOS]))
+            ]
+        )
+    ]
+)
