@@ -19,7 +19,7 @@ let package = Package(
         .target(
             name: "GCDWebServer",
             path: "GCDWebServer",
-            publicHeadersPath: "Core",
+            publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("Core"),
                 .headerSearchPath("Requests"),
