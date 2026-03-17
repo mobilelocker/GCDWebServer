@@ -1,1 +1,1 @@
-../../GCDWebServer/Responses/GCDWebServerStreamedResponse.h
+#include "../Responses/GCDWebServerStreamedResponse.h"

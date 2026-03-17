@@ -1,1 +1,1 @@
-../../GCDWebServer/Responses/GCDWebServerFileResponse.h
+#include "../Responses/GCDWebServerFileResponse.h"
