@@ -238,7 +238,7 @@ NS_ASSUME_NONNULL_END
                         if ([self->_request performClose:&localError]) {
                           [self _startProcessingRequest];
                         } else {
-                          GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, error);
+                          GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, localError);
                           [self abortRequest:self->_request withStatusCode:kGCDWebServerHTTPStatusCode_InternalServerError];
                         }
                       }];
@@ -267,7 +267,7 @@ NS_ASSUME_NONNULL_END
             if ([self->_request performClose:&localError]) {
               [self _startProcessingRequest];
             } else {
-              GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, error);
+              GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, localError);
               [self abortRequest:self->_request withStatusCode:kGCDWebServerHTTPStatusCode_InternalServerError];
             }
           }];
