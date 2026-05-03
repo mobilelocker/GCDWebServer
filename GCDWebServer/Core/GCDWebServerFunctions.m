@@ -187,17 +187,13 @@ NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension, NSDictionary<
 }
 
 NSString* GCDWebServerEscapeURLString(NSString* string) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  return CFBridgingRelease(CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, (CFStringRef)string, NULL, CFSTR(":@/?&=+"), kCFStringEncodingUTF8));
-#pragma clang diagnostic pop
+  NSMutableCharacterSet* allowed = [NSCharacterSet.URLQueryAllowedCharacterSet mutableCopy];
+  [allowed removeCharactersInString:@":@/?&=+"];
+  return [string stringByAddingPercentEncodingWithAllowedCharacters:allowed];
 }
 
 NSString* GCDWebServerUnescapeURLString(NSString* string) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  return CFBridgingRelease(CFURLCreateStringByReplacingPercentEscapesUsingEncoding(kCFAllocatorDefault, (CFStringRef)string, CFSTR(""), kCFStringEncodingUTF8));
-#pragma clang diagnostic pop
+  return [string stringByRemovingPercentEncoding];
 }
 
 NSDictionary<NSString*, NSString*>* GCDWebServerParseURLEncodedForm(NSString* form) {

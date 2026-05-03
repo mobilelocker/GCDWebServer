@@ -1034,10 +1034,7 @@ static inline NSString* _EncodeBase64(NSString* string) {
     if (![entry hasPrefix:@"."]) {
       NSString* type = [[[NSFileManager defaultManager] attributesOfItemAtPath:[path stringByAppendingPathComponent:entry] error:NULL] objectForKey:NSFileType];
       GWS_DCHECK(type);
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-      NSString* escapedFile = [entry stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-#pragma clang diagnostic pop
+      NSString* escapedFile = [entry stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet];
       GWS_DCHECK(escapedFile);
       if ([type isEqualToString:NSFileTypeRegular]) {
         [html appendFormat:@"<li><a href=\"%@\">%@</a></li>\n", escapedFile, entry];
