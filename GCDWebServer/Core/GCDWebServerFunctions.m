@@ -207,7 +207,7 @@ NSDictionary<NSString*, NSString*>* GCDWebServerParseURLEncodedForm(NSString* fo
     if (![scanner scanUpToString:@"=" intoString:&key] || [scanner isAtEnd]) {
       break;
     }
-    [scanner setScanLocation:([scanner scanLocation] + 1)];
+    [scanner scanString:@"=" intoString:NULL];
 
     NSString* value = nil;
     [scanner scanUpToString:@"&" intoString:&value];
@@ -229,7 +229,7 @@ NSDictionary<NSString*, NSString*>* GCDWebServerParseURLEncodedForm(NSString* fo
     if ([scanner isAtEnd]) {
       break;
     }
-    [scanner setScanLocation:([scanner scanLocation] + 1)];
+    [scanner scanString:@"&" intoString:NULL];
   }
   return parameters;
 }

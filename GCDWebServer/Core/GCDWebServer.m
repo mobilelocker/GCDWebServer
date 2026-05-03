@@ -151,7 +151,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   NSMutableArray<GCDWebServerHandler*>* _handlers;
   NSInteger _activeConnections;  // Accessed through _syncQueue only
   BOOL _connected;  // Accessed on main thread only
-  CFRunLoopTimerRef _disconnectTimer;  // Accessed on main thread only
+  dispatch_block_t _disconnectBlock;  // Accessed on main thread only
 
   NSDictionary<NSString*, id>* _options;
   NSMutableDictionary<NSString*, NSString*>* _authenticationBasicAccounts;
@@ -197,7 +197,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   GWS_DCHECK(_connected == NO);
   GWS_DCHECK(_activeConnections == 0);
   GWS_DCHECK(_options == nil);  // The server can never be dealloc'ed while running because of the retain-cycle with the dispatch source
-  GWS_DCHECK(_disconnectTimer == NULL);  // The server can never be dealloc'ed while the disconnect timer is pending because of the retain-cycle
+  GWS_DCHECK(_disconnectBlock == NULL);  // The server can never be dealloc'ed while the disconnect block is pending because of the retain-cycle
 
 #if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
   dispatch_release(_sourceGroup);
@@ -246,10 +246,9 @@ static void _ExecuteMainThreadRunLoopSources() {
     GWS_DCHECK(self->_activeConnections >= 0);
     if (self->_activeConnections == 0) {
       dispatch_async(dispatch_get_main_queue(), ^{
-        if (self->_disconnectTimer) {
-          CFRunLoopTimerInvalidate(self->_disconnectTimer);
-          CFRelease(self->_disconnectTimer);
-          self->_disconnectTimer = NULL;
+        if (self->_disconnectBlock) {
+          dispatch_block_cancel(self->_disconnectBlock);
+          self->_disconnectBlock = NULL;
         }
         if (self->_connected == NO) {
           [self _didConnect];
@@ -300,17 +299,17 @@ static void _ExecuteMainThreadRunLoopSources() {
     if (self->_activeConnections == 0) {
       dispatch_async(dispatch_get_main_queue(), ^{
         if ((self->_disconnectDelay > 0.0) && (self->_source4 != NULL)) {
-          if (self->_disconnectTimer) {
-            CFRunLoopTimerInvalidate(self->_disconnectTimer);
-            CFRelease(self->_disconnectTimer);
+          if (self->_disconnectBlock) {
+            dispatch_block_cancel(self->_disconnectBlock);
           }
-          self->_disconnectTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + self->_disconnectDelay, 0.0, 0, 0, ^(CFRunLoopTimerRef timer) {
+          dispatch_block_t block = dispatch_block_create(0, ^{
             GWS_DCHECK([NSThread isMainThread]);
+            self->_disconnectBlock = NULL;
             [self _didDisconnect];
-            CFRelease(self->_disconnectTimer);
-            self->_disconnectTimer = NULL;
           });
-          CFRunLoopAddTimer(CFRunLoopGetMain(), self->_disconnectTimer, kCFRunLoopCommonModes);
+          self->_disconnectBlock = block;
+          dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(self->_disconnectDelay * NSEC_PER_SEC)),
+                         dispatch_get_main_queue(), block);
         } else {
           [self _didDisconnect];
         }
@@ -716,10 +715,9 @@ static inline NSString* _EncodeBase64(NSString* string) {
   _authenticationDigestAccounts = nil;
 
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (self->_disconnectTimer) {
-      CFRunLoopTimerInvalidate(self->_disconnectTimer);
-      CFRelease(self->_disconnectTimer);
-      self->_disconnectTimer = NULL;
+    if (self->_disconnectBlock) {
+      dispatch_block_cancel(self->_disconnectBlock);
+      self->_disconnectBlock = NULL;
       [self _didDisconnect];
     }
   });
