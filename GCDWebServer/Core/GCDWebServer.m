@@ -155,12 +155,8 @@ static void _ExecuteMainThreadRunLoopSources() {
   CFTimeInterval _disconnectDelay;
   dispatch_source_t _source4;
   dispatch_source_t _source6;
-#if TARGET_OS_IPHONE
-  NSNetService* _netService;
-  NSString* _bonjourName;
-  NSString* _bonjourType;
-  NSString* _bonjourHostName;
-#endif
+  CFNetServiceRef _registrationService;
+  CFNetServiceRef _resolutionService;
   DNSServiceRef _dnsService;
   CFSocketRef _dnsSocket;
   CFRunLoopSourceRef _dnsSource;
@@ -322,19 +318,19 @@ static void _ExecuteMainThreadRunLoopSources() {
 }
 
 - (NSString*)bonjourName {
-#if TARGET_OS_IPHONE
-  return _bonjourName.length ? _bonjourName : nil;
-#else
-  return nil;
-#endif
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  CFStringRef name = _resolutionService ? CFNetServiceGetName(_resolutionService) : NULL;
+#pragma clang diagnostic pop
+  return name && CFStringGetLength(name) ? CFBridgingRelease(CFStringCreateCopy(kCFAllocatorDefault, name)) : nil;
 }
 
 - (NSString*)bonjourType {
-#if TARGET_OS_IPHONE
-  return _bonjourType.length ? _bonjourType : nil;
-#else
-  return nil;
-#endif
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  CFStringRef type = _resolutionService ? CFNetServiceGetType(_resolutionService) : NULL;
+#pragma clang diagnostic pop
+  return type && CFStringGetLength(type) ? CFBridgingRelease(CFStringCreateCopy(kCFAllocatorDefault, type)) : nil;
 }
 
 - (void)addHandlerWithMatchBlock:(GCDWebServerMatchBlock)matchBlock processBlock:(GCDWebServerProcessBlock)processBlock {
@@ -355,6 +351,43 @@ static void _ExecuteMainThreadRunLoopSources() {
   [_handlers removeAllObjects];
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+static void _NetServiceRegisterCallBack(CFNetServiceRef service, CFStreamError* error, void* info) {
+  GWS_DCHECK([NSThread isMainThread]);
+  @autoreleasepool {
+    if (error->error) {
+      GWS_LOG_ERROR(@"Bonjour registration error %i (domain %i)", (int)error->error, (int)error->domain);
+    } else {
+      GCDWebServer* server = (__bridge GCDWebServer*)info;
+      GWS_LOG_VERBOSE(@"Bonjour registration complete for %@", [server class]);
+      if (!CFNetServiceResolveWithTimeout(server->_resolutionService, 5.0, NULL)) {
+        GWS_LOG_ERROR(@"Failed starting Bonjour resolution");
+        GWS_DNOT_REACHED();
+      }
+    }
+  }
+}
+
+static void _NetServiceResolveCallBack(CFNetServiceRef service, CFStreamError* error, void* info) {
+  GWS_DCHECK([NSThread isMainThread]);
+  @autoreleasepool {
+    if (error->error) {
+      if ((error->domain != kCFStreamErrorDomainNetServices) && (error->error != kCFNetServicesErrorTimeout)) {
+        GWS_LOG_ERROR(@"Bonjour resolution error %i (domain %i)", (int)error->error, (int)error->domain);
+      }
+    } else {
+      GCDWebServer* server = (__bridge GCDWebServer*)info;
+      GWS_LOG_INFO(@"%@ now locally reachable at %@", [server class], server.bonjourServerURL);
+      if ([server.delegate respondsToSelector:@selector(webServerDidCompleteBonjourRegistration:)]) {
+        [server.delegate webServerDidCompleteBonjourRegistration:server];
+      }
+    }
+  }
+}
+
+#pragma clang diagnostic pop
 
 static void _DNSServiceCallBack(DNSServiceRef sdRef, DNSServiceFlags flags, uint32_t interfaceIndex, DNSServiceErrorType errorCode, uint32_t externalAddress, DNSServiceProtocol protocol, uint16_t internalPort, uint16_t externalPort, uint32_t ttl, void* context) {
   GWS_DCHECK([NSThread isMainThread]);
@@ -550,36 +583,60 @@ static inline NSString* _EncodeBase64(NSString* string) {
   _port = port;
   _bindToLocalhost = bindToLocalhost;
 
-#if TARGET_OS_IPHONE
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
   NSString* bonjourName = _GetOption(_options, GCDWebServerOption_BonjourName, nil);
   NSString* bonjourType = _GetOption(_options, GCDWebServerOption_BonjourType, @"_http._tcp");
   if (bonjourName) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    NSString* serviceName = bonjourName.length ? bonjourName : _serverName;
-    _bonjourName = serviceName;
-    _bonjourType = bonjourType;
-    _netService = [[NSNetService alloc] initInDomain:@"local." type:bonjourType name:serviceName port:(int)_port];
-    if (_netService) {
+    _registrationService = CFNetServiceCreate(kCFAllocatorDefault, CFSTR("local."), (__bridge CFStringRef)bonjourType, (__bridge CFStringRef)(bonjourName.length ? bonjourName : _serverName), (SInt32)_port);
+    if (_registrationService) {
+      CFNetServiceClientContext context = {0, (__bridge void*)self, NULL, NULL, NULL};
+
+      CFNetServiceSetClient(_registrationService, _NetServiceRegisterCallBack, &context);
+      CFNetServiceScheduleWithRunLoop(_registrationService, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+      CFStreamError streamError = {0};
+
       NSDictionary* txtDataDictionary = _GetOption(_options, GCDWebServerOption_BonjourTXTData, nil);
       if (txtDataDictionary != nil) {
-        NSMutableDictionary<NSString*, NSData*>* txtRecords = [NSMutableDictionary dictionary];
-        [txtDataDictionary enumerateKeysAndObjectsUsingBlock:^(NSString* key, NSString* value, BOOL* stop) {
-          txtRecords[key] = [value dataUsingEncoding:NSUTF8StringEncoding];
-        }];
-        NSData* txtData = [NSNetService dataFromTXTRecordDictionary:txtRecords];
-        if (![_netService setTXTRecordData:txtData]) {
-          GWS_LOG_ERROR(@"Failed setting Bonjour TXT record data");
+        NSUInteger count = txtDataDictionary.count;
+        CFStringRef* keys = (CFStringRef*)malloc(count * sizeof(CFStringRef));
+        CFStringRef* values = (CFStringRef*)malloc(count * sizeof(CFStringRef));
+        NSUInteger index = 0;
+        for (NSString *key in txtDataDictionary) {
+          NSString *value = txtDataDictionary[key];
+          keys[index] = (__bridge CFStringRef)(key);
+          values[index] = (__bridge CFStringRef)(value);
+          index++;
+        }
+        CFDictionaryRef txtDictionary = CFDictionaryCreate(CFAllocatorGetDefault(), (void*)keys, (void*)values, count, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        free(keys);
+        free(values);
+        if (txtDictionary != NULL) {
+          CFDataRef txtData = CFNetServiceCreateTXTDataWithDictionary(nil, txtDictionary);
+          CFRelease(txtDictionary);
+          if (txtData != NULL) {
+            if (!CFNetServiceSetTXTData(_registrationService, txtData)) {
+              GWS_LOG_ERROR(@"Failed setting TXTData");
+            }
+            CFRelease(txtData);
+          }
         }
       }
-      _netService.delegate = (id<NSNetServiceDelegate>)self;
-      [_netService publishWithOptions:0];
+
+      CFNetServiceRegisterWithOptions(_registrationService, 0, &streamError);
+
+      _resolutionService = CFNetServiceCreateCopy(kCFAllocatorDefault, _registrationService);
+      if (_resolutionService) {
+        CFNetServiceSetClient(_resolutionService, _NetServiceResolveCallBack, &context);
+        CFNetServiceScheduleWithRunLoop(_resolutionService, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+      } else {
+        GWS_LOG_ERROR(@"Failed creating CFNetService for resolution");
+      }
     } else {
-      GWS_LOG_ERROR(@"Failed creating NSNetService for Bonjour registration");
+      GWS_LOG_ERROR(@"Failed creating CFNetService for registration");
     }
-#pragma clang diagnostic pop
   }
-#endif
+#pragma clang diagnostic pop
 
   if ([(NSNumber*)_GetOption(_options, GCDWebServerOption_RequestNATPortMapping, @NO) boolValue]) {
     DNSServiceErrorType status = DNSServiceNATPortMappingCreate(&_dnsService, 0, 0, kDNSServiceProtocol_TCP, htons(port), htons(port), 0, _DNSServiceCallBack, (__bridge void*)self);
@@ -635,19 +692,23 @@ static inline NSString* _EncodeBase64(NSString* string) {
     _dnsService = NULL;
   }
 
-#if TARGET_OS_IPHONE
-  if (_netService) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    [_netService stop];
-#pragma clang diagnostic pop
-    _netService.delegate = nil;
-    _netService = nil;
-    _bonjourName = nil;
-    _bonjourType = nil;
-    _bonjourHostName = nil;
+  if (_registrationService) {
+    if (_resolutionService) {
+      CFNetServiceUnscheduleFromRunLoop(_resolutionService, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+      CFNetServiceSetClient(_resolutionService, NULL, NULL);
+      CFNetServiceCancel(_resolutionService);
+      CFRelease(_resolutionService);
+      _resolutionService = NULL;
+    }
+    CFNetServiceUnscheduleFromRunLoop(_registrationService, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+    CFNetServiceSetClient(_registrationService, NULL, NULL);
+    CFNetServiceCancel(_registrationService);
+    CFRelease(_registrationService);
+    _registrationService = NULL;
   }
-#endif
+#pragma clang diagnostic pop
 
   dispatch_source_cancel(_source6);
   dispatch_source_cancel(_source4);
@@ -753,53 +814,6 @@ static inline NSString* _EncodeBase64(NSString* string) {
 
 @end
 
-// NSNetService is deprecated in iOS 15 but remains the correct drop-in for pure
-// Bonjour advertisement without owning a socket. NWListener is the future-proof
-// alternative but requires owning the listening socket.
-#if TARGET_OS_IPHONE
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
-@interface GCDWebServer (Bonjour) <NSNetServiceDelegate>
-@end
-
-@implementation GCDWebServer (Bonjour)
-
-// Called on the main thread when publication completes — begin resolution to obtain the .local hostname.
-- (void)netServiceDidPublish:(NSNetService*)sender {
-  GWS_DCHECK([NSThread isMainThread]);
-  GWS_LOG_VERBOSE(@"Bonjour registration complete for %@", [self class]);
-  [_netService resolveWithTimeout:5.0];
-}
-
-- (void)netService:(NSNetService*)sender didNotPublish:(NSDictionary<NSString*, NSNumber*>*)errorDict {
-  GWS_DCHECK([NSThread isMainThread]);
-  GWS_LOG_ERROR(@"Bonjour registration error: %@", errorDict);
-}
-
-// Called when resolution succeeds — hostName now contains the .local address.
-- (void)netServiceDidResolveAddress:(NSNetService*)sender {
-  GWS_DCHECK([NSThread isMainThread]);
-  _bonjourHostName = sender.hostName;
-  GWS_LOG_INFO(@"%@ now locally reachable at %@", [self class], self.bonjourServerURL);
-  if ([_delegate respondsToSelector:@selector(webServerDidCompleteBonjourRegistration:)]) {
-    [_delegate webServerDidCompleteBonjourRegistration:self];
-  }
-}
-
-- (void)netService:(NSNetService*)sender didNotResolve:(NSDictionary<NSString*, NSNumber*>*)errorDict {
-  GWS_DCHECK([NSThread isMainThread]);
-  NSInteger code = [errorDict[NSNetServicesErrorCode] integerValue];
-  if (code != NSNetServicesTimeoutError) {
-    GWS_LOG_ERROR(@"Bonjour resolution error: %@", errorDict);
-  }
-}
-
-@end
-
-#pragma clang diagnostic pop  // restore -Wdeprecated-declarations
-#endif  // TARGET_OS_IPHONE
-
 @implementation GCDWebServer (Extensions)
 
 - (NSURL*)serverURL {
@@ -817,19 +831,20 @@ static inline NSString* _EncodeBase64(NSString* string) {
 }
 
 - (NSURL*)bonjourServerURL {
-#if TARGET_OS_IPHONE
-  if (_source4 && _bonjourHostName.length) {
-    NSString* name = _bonjourHostName;
-    if ([name hasSuffix:@"."]) {
-      name = [name substringToIndex:(name.length - 1)];  // Strip trailing period from .local. hostname
-    }
-    if (_port != 80) {
-      return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@:%i/", name, (int)_port]];
-    } else {
-      return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@/", name]];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  if (_source4 && _resolutionService) {
+    NSString* name = (__bridge NSString*)CFNetServiceGetTargetHost(_resolutionService);
+    if (name.length) {
+      name = [name substringToIndex:(name.length - 1)];  // Strip trailing period at end of domain
+      if (_port != 80) {
+        return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@:%i/", name, (int)_port]];
+      } else {
+        return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@/", name]];
+      }
     }
   }
-#endif
+#pragma clang diagnostic pop
   return nil;
 }
 
