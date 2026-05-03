@@ -1,11 +1,11 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.0
 
 import PackageDescription
 
 let package = Package(
     name: "GCDWebServer",
     platforms: [
-        .iOS(.v13),
+        .iOS(.v18),
         .macOS(.v10_15),
         .tvOS(.v13)
     ],
