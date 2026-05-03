@@ -50,6 +50,20 @@
 
 #define kBonjourResolutionTimeout 5.0
 
+#if TARGET_OS_IPHONE
+// Returns YES when running inside an app extension process.
+// UIApplication.sharedApplication is unavailable in extensions and returns nil,
+// so any code that calls it must be skipped in that context.
+static BOOL _GCDWebServerIsAppExtension(void) {
+  static BOOL isExtension;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    isExtension = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSExtension"] != nil;
+  });
+  return isExtension;
+}
+#endif
+
 NSString* const GCDWebServerOption_Port = @"Port";
 NSString* const GCDWebServerOption_BonjourName = @"BonjourName";
 NSString* const GCDWebServerOption_BonjourType = @"BonjourType";
@@ -212,10 +226,12 @@ static void _ExecuteMainThreadRunLoopSources() {
   GWS_DCHECK([NSThread isMainThread]);
   if (_backgroundTask == UIBackgroundTaskInvalid) {
     GWS_LOG_DEBUG(@"Did start background task");
-    _backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
-      GWS_LOG_WARNING(@"Application is being suspended while %@ is still connected", [self class]);
-      [self _endBackgroundTask];
-    }];
+    if (!_GCDWebServerIsAppExtension()) {
+      _backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
+        GWS_LOG_WARNING(@"Application is being suspended while %@ is still connected", [self class]);
+        [self _endBackgroundTask];
+      }];
+    }
   } else {
     GWS_DNOT_REACHED();
   }
@@ -231,7 +247,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   GWS_LOG_DEBUG(@"Did connect");
 
 #if TARGET_OS_IPHONE
-  if ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground) {
+  if (!_GCDWebServerIsAppExtension() && [[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground) {
     [self _startBackgroundTask];
   }
 #endif
@@ -265,10 +281,12 @@ static void _ExecuteMainThreadRunLoopSources() {
 - (void)_endBackgroundTask {
   GWS_DCHECK([NSThread isMainThread]);
   if (_backgroundTask != UIBackgroundTaskInvalid) {
-    if (_suspendInBackground && ([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground) && _source4) {
-      [self _stop];
+    if (!_GCDWebServerIsAppExtension()) {
+      if (_suspendInBackground && ([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground) && _source4) {
+        [self _stop];
+      }
+      [[UIApplication sharedApplication] endBackgroundTask:_backgroundTask];
     }
-    [[UIApplication sharedApplication] endBackgroundTask:_backgroundTask];
     _backgroundTask = UIBackgroundTaskInvalid;
     GWS_LOG_DEBUG(@"Did end background task");
   }
@@ -755,7 +773,7 @@ static inline NSString* _EncodeBase64(NSString* string) {
     _options = options ? [options copy] : @{};
 #if TARGET_OS_IPHONE
     _suspendInBackground = [(NSNumber*)_GetOption(_options, GCDWebServerOption_AutomaticallySuspendInBackground, @YES) boolValue];
-    if (((_suspendInBackground == NO) || ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground)) && ![self _start:error])
+    if (((_suspendInBackground == NO) || _GCDWebServerIsAppExtension() || ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground)) && ![self _start:error])
 #else
     if (![self _start:error])
 #endif
