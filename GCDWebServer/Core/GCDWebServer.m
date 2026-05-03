@@ -50,6 +50,20 @@
 
 #define kBonjourResolutionTimeout 5.0
 
+#if TARGET_OS_IPHONE
+// Returns YES when running inside an app extension process.
+// UIApplication.sharedApplication is unavailable in extensions and returns nil,
+// so any code that calls it must be skipped in that context.
+static BOOL _GCDWebServerIsAppExtension(void) {
+  static BOOL isExtension;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    isExtension = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSExtension"] != nil;
+  });
+  return isExtension;
+}
+#endif
+
 NSString* const GCDWebServerOption_Port = @"Port";
 NSString* const GCDWebServerOption_BonjourName = @"BonjourName";
 NSString* const GCDWebServerOption_BonjourType = @"BonjourType";
@@ -151,7 +165,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   NSMutableArray<GCDWebServerHandler*>* _handlers;
   NSInteger _activeConnections;  // Accessed through _syncQueue only
   BOOL _connected;  // Accessed on main thread only
-  CFRunLoopTimerRef _disconnectTimer;  // Accessed on main thread only
+  dispatch_block_t _disconnectBlock;  // Accessed on main thread only
 
   NSDictionary<NSString*, id>* _options;
   NSMutableDictionary<NSString*, NSString*>* _authenticationBasicAccounts;
@@ -197,7 +211,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   GWS_DCHECK(_connected == NO);
   GWS_DCHECK(_activeConnections == 0);
   GWS_DCHECK(_options == nil);  // The server can never be dealloc'ed while running because of the retain-cycle with the dispatch source
-  GWS_DCHECK(_disconnectTimer == NULL);  // The server can never be dealloc'ed while the disconnect timer is pending because of the retain-cycle
+  GWS_DCHECK(_disconnectBlock == NULL);  // The server can never be dealloc'ed while the disconnect block is pending because of the retain-cycle
 
 #if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
   dispatch_release(_sourceGroup);
@@ -212,10 +226,12 @@ static void _ExecuteMainThreadRunLoopSources() {
   GWS_DCHECK([NSThread isMainThread]);
   if (_backgroundTask == UIBackgroundTaskInvalid) {
     GWS_LOG_DEBUG(@"Did start background task");
-    _backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
-      GWS_LOG_WARNING(@"Application is being suspended while %@ is still connected", [self class]);
-      [self _endBackgroundTask];
-    }];
+    if (!_GCDWebServerIsAppExtension()) {
+      _backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
+        GWS_LOG_WARNING(@"Application is being suspended while %@ is still connected", [self class]);
+        [self _endBackgroundTask];
+      }];
+    }
   } else {
     GWS_DNOT_REACHED();
   }
@@ -231,7 +247,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   GWS_LOG_DEBUG(@"Did connect");
 
 #if TARGET_OS_IPHONE
-  if ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground) {
+  if (!_GCDWebServerIsAppExtension() && [[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground) {
     [self _startBackgroundTask];
   }
 #endif
@@ -246,10 +262,9 @@ static void _ExecuteMainThreadRunLoopSources() {
     GWS_DCHECK(self->_activeConnections >= 0);
     if (self->_activeConnections == 0) {
       dispatch_async(dispatch_get_main_queue(), ^{
-        if (self->_disconnectTimer) {
-          CFRunLoopTimerInvalidate(self->_disconnectTimer);
-          CFRelease(self->_disconnectTimer);
-          self->_disconnectTimer = NULL;
+        if (self->_disconnectBlock) {
+          dispatch_block_cancel(self->_disconnectBlock);
+          self->_disconnectBlock = NULL;
         }
         if (self->_connected == NO) {
           [self _didConnect];
@@ -266,10 +281,12 @@ static void _ExecuteMainThreadRunLoopSources() {
 - (void)_endBackgroundTask {
   GWS_DCHECK([NSThread isMainThread]);
   if (_backgroundTask != UIBackgroundTaskInvalid) {
-    if (_suspendInBackground && ([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground) && _source4) {
-      [self _stop];
+    if (!_GCDWebServerIsAppExtension()) {
+      if (_suspendInBackground && ([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground) && _source4) {
+        [self _stop];
+      }
+      [[UIApplication sharedApplication] endBackgroundTask:_backgroundTask];
     }
-    [[UIApplication sharedApplication] endBackgroundTask:_backgroundTask];
     _backgroundTask = UIBackgroundTaskInvalid;
     GWS_LOG_DEBUG(@"Did end background task");
   }
@@ -300,17 +317,17 @@ static void _ExecuteMainThreadRunLoopSources() {
     if (self->_activeConnections == 0) {
       dispatch_async(dispatch_get_main_queue(), ^{
         if ((self->_disconnectDelay > 0.0) && (self->_source4 != NULL)) {
-          if (self->_disconnectTimer) {
-            CFRunLoopTimerInvalidate(self->_disconnectTimer);
-            CFRelease(self->_disconnectTimer);
+          if (self->_disconnectBlock) {
+            dispatch_block_cancel(self->_disconnectBlock);
           }
-          self->_disconnectTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + self->_disconnectDelay, 0.0, 0, 0, ^(CFRunLoopTimerRef timer) {
+          dispatch_block_t block = dispatch_block_create(0, ^{
             GWS_DCHECK([NSThread isMainThread]);
+            self->_disconnectBlock = NULL;
             [self _didDisconnect];
-            CFRelease(self->_disconnectTimer);
-            self->_disconnectTimer = NULL;
           });
-          CFRunLoopAddTimer(CFRunLoopGetMain(), self->_disconnectTimer, kCFRunLoopCommonModes);
+          self->_disconnectBlock = block;
+          dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(self->_disconnectDelay * NSEC_PER_SEC)),
+                         dispatch_get_main_queue(), block);
         } else {
           [self _didDisconnect];
         }
@@ -422,14 +439,7 @@ static inline id _GetOption(NSDictionary<NSString*, id>* options, NSString* key,
 
 static inline NSString* _EncodeBase64(NSString* string) {
   NSData* data = [string dataUsingEncoding:NSUTF8StringEncoding];
-#if TARGET_OS_IPHONE || (__MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_9)
   return [[NSString alloc] initWithData:[data base64EncodedDataWithOptions:0] encoding:NSASCIIStringEncoding];
-#else
-  if (@available(macOS 10.9, *)) {
-    return [[NSString alloc] initWithData:[data base64EncodedDataWithOptions:0] encoding:NSASCIIStringEncoding];
-  }
-  return [data base64Encoding];
-#endif
 }
 
 - (int)_createListeningSocket:(BOOL)useIPv6
@@ -723,10 +733,9 @@ static inline NSString* _EncodeBase64(NSString* string) {
   _authenticationDigestAccounts = nil;
 
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (self->_disconnectTimer) {
-      CFRunLoopTimerInvalidate(self->_disconnectTimer);
-      CFRelease(self->_disconnectTimer);
-      self->_disconnectTimer = NULL;
+    if (self->_disconnectBlock) {
+      dispatch_block_cancel(self->_disconnectBlock);
+      self->_disconnectBlock = NULL;
       [self _didDisconnect];
     }
   });
@@ -764,7 +773,7 @@ static inline NSString* _EncodeBase64(NSString* string) {
     _options = options ? [options copy] : @{};
 #if TARGET_OS_IPHONE
     _suspendInBackground = [(NSNumber*)_GetOption(_options, GCDWebServerOption_AutomaticallySuspendInBackground, @YES) boolValue];
-    if (((_suspendInBackground == NO) || ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground)) && ![self _start:error])
+    if (((_suspendInBackground == NO) || _GCDWebServerIsAppExtension() || ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground)) && ![self _start:error])
 #else
     if (![self _start:error])
 #endif
