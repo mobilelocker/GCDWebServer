@@ -107,6 +107,11 @@ NSDate* _Nullable GCDWebServerParseISO8601(NSString* string);
  */
 NSString* GCDWebServerNormalizePath(NSString* path);
 
+/**
+ *  Strips CR and LF characters from an HTTP header value to prevent CRLF injection.
+ */
+NSString* GCDWebServerSanitizeHeaderValue(NSString* value);
+
 #ifdef __cplusplus
 }
 #endif

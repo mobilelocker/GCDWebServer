@@ -595,8 +595,8 @@ static inline NSString* _EncodeBase64(NSString* string) {
       NSDictionary* txtDataDictionary = _GetOption(_options, GCDWebServerOption_BonjourTXTData, nil);
       if (txtDataDictionary != nil) {
         NSUInteger count = txtDataDictionary.count;
-        CFStringRef keys[count];
-        CFStringRef values[count];
+        CFStringRef* keys = (CFStringRef*)malloc(count * sizeof(CFStringRef));
+        CFStringRef* values = (CFStringRef*)malloc(count * sizeof(CFStringRef));
         NSUInteger index = 0;
         for (NSString *key in txtDataDictionary) {
           NSString *value = txtDataDictionary[key];
@@ -605,11 +605,17 @@ static inline NSString* _EncodeBase64(NSString* string) {
           index ++;
         }
         CFDictionaryRef txtDictionary = CFDictionaryCreate(CFAllocatorGetDefault(), (void *)keys, (void *)values, count, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        free(keys);
+        free(values);
         if (txtDictionary != NULL) {
           CFDataRef txtData = CFNetServiceCreateTXTDataWithDictionary(nil, txtDictionary);
-          Boolean setTXTDataResult = CFNetServiceSetTXTData(_registrationService, txtData);
-          if (!setTXTDataResult) {
-            GWS_LOG_ERROR(@"Failed setting TXTData");
+          CFRelease(txtDictionary);
+          if (txtData != NULL) {
+            Boolean setTXTDataResult = CFNetServiceSetTXTData(_registrationService, txtData);
+            CFRelease(txtData);
+            if (!setTXTDataResult) {
+              GWS_LOG_ERROR(@"Failed setting TXTData");
+            }
           }
         }
       }
@@ -1028,10 +1034,7 @@ static inline NSString* _EncodeBase64(NSString* string) {
     if (![entry hasPrefix:@"."]) {
       NSString* type = [[[NSFileManager defaultManager] attributesOfItemAtPath:[path stringByAppendingPathComponent:entry] error:NULL] objectForKey:NSFileType];
       GWS_DCHECK(type);
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-      NSString* escapedFile = [entry stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-#pragma clang diagnostic pop
+      NSString* escapedFile = [entry stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet];
       GWS_DCHECK(escapedFile);
       if ([type isEqualToString:NSFileTypeRegular]) {
         [html appendFormat:@"<li><a href=\"%@\">%@</a></li>\n", escapedFile, entry];

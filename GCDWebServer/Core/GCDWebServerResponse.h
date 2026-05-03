@@ -55,7 +55,7 @@ typedef void (^GCDWebServerBodyReaderCompletionBlock)(NSData* _Nullable data, NS
  *  It should return YES on success or NO on failure and set the "error" argument
  *  which is guaranteed to be non-NULL.
  */
-- (BOOL)open:(NSError**)error;
+- (BOOL)open:(NSError* _Nullable __autoreleasing * _Nonnull)error;
 
 /**
  *  This method is called whenever body data is sent.
@@ -64,7 +64,7 @@ typedef void (^GCDWebServerBodyReaderCompletionBlock)(NSData* _Nullable data, NS
  *  or an empty NSData there is no more body data, or nil on error and set
  *  the "error" argument which is guaranteed to be non-NULL.
  */
-- (nullable NSData*)readData:(NSError**)error;
+- (nullable NSData*)readData:(NSError* _Nullable __autoreleasing * _Nonnull)error;
 
 /**
  *  This method is called after all body data has been sent.

@@ -37,9 +37,11 @@
 #endif
 #import <CommonCrypto/CommonDigest.h>
 
+#import <arpa/inet.h>
 #import <ifaddrs.h>
 #import <net/if.h>
 #import <netdb.h>
+#import <netinet/in.h>
 
 #import "GCDWebServerPrivate.h"
 
@@ -187,17 +189,13 @@ NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension, NSDictionary<
 }
 
 NSString* GCDWebServerEscapeURLString(NSString* string) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  return CFBridgingRelease(CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, (CFStringRef)string, NULL, CFSTR(":@/?&=+"), kCFStringEncodingUTF8));
-#pragma clang diagnostic pop
+  NSMutableCharacterSet* allowed = [NSCharacterSet.URLQueryAllowedCharacterSet mutableCopy];
+  [allowed removeCharactersInString:@":@/?&=+"];
+  return [string stringByAddingPercentEncodingWithAllowedCharacters:allowed];
 }
 
 NSString* GCDWebServerUnescapeURLString(NSString* string) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  return CFBridgingRelease(CFURLCreateStringByReplacingPercentEscapesUsingEncoding(kCFAllocatorDefault, (CFStringRef)string, CFSTR(""), kCFStringEncodingUTF8));
-#pragma clang diagnostic pop
+  return [string stringByRemovingPercentEncoding];
 }
 
 NSDictionary<NSString*, NSString*>* GCDWebServerParseURLEncodedForm(NSString* form) {
@@ -240,11 +238,19 @@ NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOOL inclu
   char hostBuffer[NI_MAXHOST];
   char serviceBuffer[NI_MAXSERV];
   if (getnameinfo(addr, addr->sa_len, hostBuffer, sizeof(hostBuffer), serviceBuffer, sizeof(serviceBuffer), NI_NUMERICHOST | NI_NUMERICSERV | NI_NOFQDN) != 0) {
-#if DEBUG
-    GWS_DNOT_REACHED();
-#else
-    return @"";
-#endif
+    GWS_DCHECK(NO);  // Should not happen for a numeric conversion
+    // Fall back to inet_ntop for basic IPv4/IPv6 formatting without requiring getnameinfo
+    const void* addrBytes = NULL;
+    if (addr->sa_family == AF_INET) {
+      addrBytes = &((const struct sockaddr_in*)addr)->sin_addr;
+    } else if (addr->sa_family == AF_INET6) {
+      addrBytes = &((const struct sockaddr_in6*)addr)->sin6_addr;
+    }
+    if (addrBytes && inet_ntop(addr->sa_family, addrBytes, hostBuffer, sizeof(hostBuffer))) {
+      snprintf(serviceBuffer, sizeof(serviceBuffer), "0");
+    } else {
+      return @"unknown";
+    }
   }
   return includeService ? [NSString stringWithFormat:@"%s:%s", hostBuffer, serviceBuffer] : (NSString*)[NSString stringWithUTF8String:hostBuffer];
 }
@@ -331,4 +337,10 @@ NSString* GCDWebServerNormalizePath(NSString* path) {
     return [@"/" stringByAppendingString:[components componentsJoinedByString:@"/"]];  // Preserve initial slash
   }
   return [components componentsJoinedByString:@"/"];
+}
+
+NSString* GCDWebServerSanitizeHeaderValue(NSString* value) {
+  NSCharacterSet* crlf = [NSCharacterSet characterSetWithCharactersInString:@"\r\n"];
+  NSArray<NSString*>* components = [value componentsSeparatedByCharactersInSet:crlf];
+  return [components componentsJoinedByString:@""];
 }

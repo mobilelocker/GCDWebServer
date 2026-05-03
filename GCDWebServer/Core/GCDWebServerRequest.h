@@ -56,7 +56,7 @@ extern NSString* const GCDWebServerRequestAttribute_RegexCaptures;
  *  It should return YES on success or NO on failure and set the "error" argument
  *  which is guaranteed to be non-NULL.
  */
-- (BOOL)open:(NSError**)error;
+- (BOOL)open:(NSError* _Nullable __autoreleasing * _Nonnull)error;
 
 /**
  *  This method is called whenever body data has been received.
@@ -64,7 +64,7 @@ extern NSString* const GCDWebServerRequestAttribute_RegexCaptures;
  *  It should return YES on success or NO on failure and set the "error" argument
  *  which is guaranteed to be non-NULL.
  */
-- (BOOL)writeData:(NSData*)data error:(NSError**)error;
+- (BOOL)writeData:(NSData*)data error:(NSError* _Nullable __autoreleasing * _Nonnull)error;
 
 /**
  *  This method is called after all body data has been received.
@@ -72,7 +72,7 @@ extern NSString* const GCDWebServerRequestAttribute_RegexCaptures;
  *  It should return YES on success or NO on failure and set the "error" argument
  *  which is guaranteed to be non-NULL.
  */
-- (BOOL)close:(NSError**)error;
+- (BOOL)close:(NSError* _Nullable __autoreleasing * _Nonnull)error;
 
 @end
 

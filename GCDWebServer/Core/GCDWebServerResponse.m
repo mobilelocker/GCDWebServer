@@ -171,7 +171,7 @@
 }
 
 - (void)setValue:(NSString*)value forAdditionalHeader:(NSString*)header {
-  [_additionalHeaders setValue:value forKey:header];
+  [_additionalHeaders setValue:GCDWebServerSanitizeHeaderValue(value) forKey:header];
 }
 
 - (BOOL)hasBody {
