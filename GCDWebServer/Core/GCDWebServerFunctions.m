@@ -328,3 +328,9 @@ NSString* GCDWebServerNormalizePath(NSString* path) {
   }
   return [components componentsJoinedByString:@"/"];
 }
+
+NSString* GCDWebServerSanitizeHeaderValue(NSString* value) {
+  NSCharacterSet* crlf = [NSCharacterSet characterSetWithCharactersInString:@"\r\n"];
+  NSArray<NSString*>* components = [value componentsSeparatedByCharactersInSet:crlf];
+  return [components componentsJoinedByString:@""];
+}
