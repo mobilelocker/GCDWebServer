@@ -502,12 +502,16 @@ NS_ASSUME_NONNULL_END
 }
 
 static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
-  char buffer[size + 1];
-  bcopy(bytes, buffer, size);
+  // Max valid chunk-size header is 16 hex digits (UINT64_MAX). Reject anything larger.
+  if (size == 0 || size > 16) {
+    return NSNotFound;
+  }
+  char buffer[17];
+  memcpy(buffer, bytes, size);
   buffer[size] = 0;
   char* end = NULL;
   long result = strtol(buffer, &end, 16);
-  return ((end != NULL) && (*end == 0) && (result >= 0) ? result : NSNotFound);
+  return ((end != NULL) && (*end == 0) && (result >= 0) ? (NSUInteger)result : NSNotFound);
 }
 
 - (void)readNextBodyChunk:(NSMutableData*)chunkData completionBlock:(ReadBodyCompletionBlock)block {
