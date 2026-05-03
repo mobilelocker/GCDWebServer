@@ -1,12 +1,14 @@
+> **This is a MobilLocker fork** of [swisspol/GCDWebServer](https://github.com/swisspol/GCDWebServer).
+> It targets **iOS 18+** only. See [Changelog](#changelog) for what changed.
+
+---
+
 Overview
 ========
 
-[![Build Status](https://travis-ci.org/swisspol/GCDWebServer.svg?branch=master)](https://travis-ci.org/swisspol/GCDWebServer)
-[![Version](http://cocoapod-badges.herokuapp.com/v/GCDWebServer/badge.png)](https://cocoapods.org/pods/GCDWebServer)
-[![Platform](http://cocoapod-badges.herokuapp.com/p/GCDWebServer/badge.png)](https://github.com/swisspol/GCDWebServer)
 [![License](http://img.shields.io/cocoapods/l/GCDWebServer.svg)](LICENSE)
 
-GCDWebServer is a modern and lightweight GCD based HTTP 1.1 server designed to be embedded in iOS, macOS & tvOS apps. It was written from scratch with the following goals in mind:
+GCDWebServer is a modern and lightweight GCD based HTTP 1.1 server designed to be embedded in iOS apps. It was written from scratch with the following goals in mind:
 * Elegant and easy to use architecture with only 4 core classes: server, connection, request and response (see "Understanding GCDWebServer's Architecture" below)
 * Well designed API with fully documented headers for easy integration and customization
 * Entirely built with an event-driven design using [Grand Central Dispatch](http://en.wikipedia.org/wiki/Grand_Central_Dispatch) for best performance and concurrency
@@ -34,21 +36,51 @@ What's not supported (but not really required from an embedded HTTP server):
 * Keep-alive connections
 * HTTPS
 
-Requirements:
-* macOS 10.7 or later (x86_64)
-* iOS 8.0 or later (armv7, armv7s or arm64)
-* tvOS 9.0 or later (arm64)
-* ARC memory management only (if you need MRC support use GCDWebServer 3.1 or earlier)
+Requirements (this fork):
+* iOS 18.0 or later
+* ARC memory management
 
-Getting Started
-===============
+Installation (Swift Package Manager)
+=====================================
+
+Add to your `Package.swift`:
+
+```swift
+.package(url: "https://github.com/mobilelocker/GCDWebServer.git", from: "3.5.6")
+```
+
+Available products: `GCDWebServer`, `GCDWebDAVServer`, `GCDWebUploader`.
+
+Changelog
+=========
+
+### 3.5.6 (iOS 18+ modernization)
+- Deployment target bumped to iOS 18; `swift-tools-version` bumped to 6.0
+- `OSAtomicIncrement32` replaced with `_Atomic` / `stdatomic`
+- `bcopy` replaced with `memcpy` in chunked response write path
+- `UIApplication.sharedApplication` guarded for app extension safety
+- `NSScanner setScanLocation:` replaced with `scanString:intoString:`
+- `CFRunLoopTimerCreateWithHandler` replaced with `dispatch_after` / `dispatch_block_cancel`
+- `GCDWebDAVServer` and `GCDWebUploader` exposed as SPM library products
+- `GCDWebServerTests` SPM test target added
+- macOS and tvOS platform declarations removed from `Package.swift`
+- `CFNetService` Bonjour path replaced with `NSNetService`
+- Legacy UTI MIME-type lookup replaced with `UniformTypeIdentifiers` on iOS
+
+### 3.5.5 (security and correctness fixes)
+- CF memory leaks fixed in Bonjour TXT record setup
+- Stack VLA replaced with fixed-size buffer in `_ScanHexNumber` (chunked transfer)
+- Error variable shadowing fixed in body read completion blocks
+- Deprecated `CFURLCreateStringByAddingPercentEscapes` / `CFURLCreateStringByReplacingPercentEscapes` replaced
+- Nullability annotations added to `NSError**` parameters in public headers
+- `GCDWebServerSanitizeHeaderValue()` added to prevent CRLF header injection
+- `getnameinfo` failure now falls back to `inet_ntop` instead of returning empty string
+- Unit tests added for URL encoding, header sanitization, and chunked transfer
+
+Getting Started (original upstream)
+=====================================
 
 Download or check out the [latest release](https://github.com/swisspol/GCDWebServer/releases) of GCDWebServer then add the entire "GCDWebServer" subfolder to your Xcode project. If you intend to use one of the extensions like GCDWebDAVServer or GCDWebUploader, add these subfolders as well. Finally link to `libz` (via Target > Build Phases > Link Binary With Libraries) and add `$(SDKROOT)/usr/include/libxml2` to your header search paths (via Target > Build Settings > HEADER_SEARCH_PATHS).
-
-Alternatively, you can install GCDWebServer using [CocoaPods](http://cocoapods.org/) by simply adding this line to your Podfile:
-```
-pod "GCDWebServer", "~> 3.0"
-```
 If you want to use GCDWebUploader, use this line instead:
 ```
 pod "GCDWebServer/WebUploader", "~> 3.0"
