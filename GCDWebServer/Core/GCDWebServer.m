@@ -32,20 +32,16 @@
 #import <TargetConditionals.h>
 #if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
-#else
-#ifdef __GCDWEBSERVER_ENABLE_TESTING__
-#import <AppKit/AppKit.h>
-#endif
 #endif
 #import <netinet/in.h>
 #import <dns_sd.h>
 
 #import "GCDWebServerPrivate.h"
 
-#if TARGET_OS_IPHONE && !TARGET_IPHONE_SIMULATOR
-#define kDefaultPort 80
-#else
+#if TARGET_IPHONE_SIMULATOR
 #define kDefaultPort 8080
+#else
+#define kDefaultPort 80
 #endif
 
 #define kBonjourResolutionTimeout 5.0
@@ -79,9 +75,7 @@ NSString* const GCDWebServerOption_ConnectionClass = @"ConnectionClass";
 NSString* const GCDWebServerOption_AutomaticallyMapHEADToGET = @"AutomaticallyMapHEADToGET";
 NSString* const GCDWebServerOption_ConnectedStateCoalescingInterval = @"ConnectedStateCoalescingInterval";
 NSString* const GCDWebServerOption_DispatchQueuePriority = @"DispatchQueuePriority";
-#if TARGET_OS_IPHONE
 NSString* const GCDWebServerOption_AutomaticallySuspendInBackground = @"AutomaticallySuspendInBackground";
-#endif
 
 NSString* const GCDWebServerAuthenticationMethod_Basic = @"Basic";
 NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
@@ -94,9 +88,6 @@ GCDWebServerLoggingLevel GCDWebServerLogLevel = kGCDWebServerLoggingLevel_Info;
 #endif
 #endif
 
-#if !TARGET_OS_IPHONE
-static BOOL _run;
-#endif
 
 #ifdef __GCDWEBSERVER_LOGGING_FACILITY_BUILTIN__
 
@@ -123,16 +114,7 @@ void GCDWebServerLogMessage(GCDWebServerLoggingLevel level, NSString* format, ..
 
 #endif
 
-#if !TARGET_OS_IPHONE
-
-static void _SignalHandler(int signal) {
-  _run = NO;
-  printf("\n");
-}
-
-#endif
-
-#if !TARGET_OS_IPHONE || defined(__GCDWEBSERVER_ENABLE_TESTING__)
+#if defined(__GCDWEBSERVER_ENABLE_TESTING__)
 
 // This utility function is used to ensure scheduled callbacks on the main thread are called when running the server synchronously
 // https://developer.apple.com/library/mac/documentation/General/Conceptual/ConcurrencyProgrammingGuide/OperationQueues/OperationQueues.html
@@ -870,38 +852,6 @@ static inline NSString* _EncodeBase64(NSString* string) {
   return [self startWithOptions:options error:NULL];
 }
 
-#if !TARGET_OS_IPHONE
-
-- (BOOL)runWithPort:(NSUInteger)port bonjourName:(NSString*)name {
-  NSMutableDictionary* options = [NSMutableDictionary dictionary];
-  [options setObject:[NSNumber numberWithInteger:port] forKey:GCDWebServerOption_Port];
-  [options setValue:name forKey:GCDWebServerOption_BonjourName];
-  return [self runWithOptions:options error:NULL];
-}
-
-- (BOOL)runWithOptions:(NSDictionary<NSString*, id>*)options error:(NSError**)error {
-  GWS_DCHECK([NSThread isMainThread]);
-  BOOL success = NO;
-  _run = YES;
-  void (*termHandler)(int) = signal(SIGTERM, _SignalHandler);
-  void (*intHandler)(int) = signal(SIGINT, _SignalHandler);
-  if ((termHandler != SIG_ERR) && (intHandler != SIG_ERR)) {
-    if ([self startWithOptions:options error:error]) {
-      while (_run) {
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, true);
-      }
-      [self stop];
-      success = YES;
-    }
-    _ExecuteMainThreadRunLoopSources();
-    signal(SIGINT, intHandler);
-    signal(SIGTERM, termHandler);
-  }
-  return success;
-}
-
-#endif
-
 @end
 
 @implementation GCDWebServer (Handlers)
@@ -1295,20 +1245,6 @@ static void _LogResult(NSString* format, ...) {
                       if ((actualBody && expectedBody && ![actualBody isEqualToData:expectedBody]) || (actualBody && !expectedBody) || (!actualBody && expectedBody)) {
                         _LogResult(@"  Bodies not matching:\n    Expected: %lu bytes\n      Actual: %lu bytes", (unsigned long)expectedBody.length, (unsigned long)actualBody.length);
                         success = NO;
-#if !TARGET_OS_IPHONE
-#if DEBUG
-                        if (GCDWebServerIsTextContentType((NSString*)[expectedHeaders objectForKey:@"Content-Type"])) {
-                          NSString* expectedPath = [NSTemporaryDirectory() stringByAppendingPathComponent:(NSString*)[[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingPathExtension:@"txt"]];
-                          NSString* actualPath = [NSTemporaryDirectory() stringByAppendingPathComponent:(NSString*)[[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingPathExtension:@"txt"]];
-                          if ([expectedBody writeToFile:expectedPath atomically:YES] && [actualBody writeToFile:actualPath atomically:YES]) {
-                            NSTask* task = [[NSTask alloc] init];
-                            [task setLaunchPath:@"/usr/bin/opendiff"];
-                            [task setArguments:@[ expectedPath, actualPath ]];
-                            [task launch];
-                          }
-                        }
-#endif
-#endif
                       }
 
                       CFRelease(actualResponse);

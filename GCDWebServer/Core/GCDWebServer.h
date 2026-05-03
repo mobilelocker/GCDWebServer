@@ -201,8 +201,6 @@ extern NSString* const GCDWebServerOption_ConnectedStateCoalescingInterval;
  */
 extern NSString* const GCDWebServerOption_DispatchQueuePriority;
 
-#if TARGET_OS_IPHONE
-
 /**
  *  Enables the GCDWebServer to automatically suspend itself (as if -stop was
  *  called) when the iOS app goes into the background and the last
@@ -216,8 +214,6 @@ extern NSString* const GCDWebServerOption_DispatchQueuePriority;
  *  @warning The running property will be NO while the GCDWebServer is suspended.
  */
 extern NSString* const GCDWebServerOption_AutomaticallySuspendInBackground;
-
-#endif
 
 /**
  *  HTTP Basic Authentication scheme (see https://tools.ietf.org/html/rfc2617).
@@ -435,32 +431,6 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
  *  Returns NO if the server failed to start.
  */
 - (BOOL)startWithPort:(NSUInteger)port bonjourName:(nullable NSString*)name;
-
-#if !TARGET_OS_IPHONE
-
-/**
- *  Runs the server synchronously using -startWithPort:bonjourName: until a
- *  SIGINT signal is received i.e. Ctrl-C. This method is intended to be used
- *  by command line tools.
- *
- *  Returns NO if the server failed to start.
- *
- *  @warning This method must be used from the main thread only.
- */
-- (BOOL)runWithPort:(NSUInteger)port bonjourName:(nullable NSString*)name;
-
-/**
- *  Runs the server synchronously using -startWithOptions: until a SIGTERM or
- *  SIGINT signal is received i.e. Ctrl-C in Terminal. This method is intended to
- *  be used by command line tools.
- *
- *  Returns NO if the server failed to start and sets "error" argument if not NULL.
- *
- *  @warning This method must be used from the main thread only.
- */
-- (BOOL)runWithOptions:(nullable NSDictionary<NSString*, id>*)options error:(NSError* _Nullable __autoreleasing * _Nullable)error;
-
-#endif
 
 @end
 
