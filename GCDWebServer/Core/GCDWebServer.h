@@ -379,7 +379,7 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
  *
  *  Returns NO if the server failed to start and sets "error" argument if not NULL.
  */
-- (BOOL)startWithOptions:(nullable NSDictionary<NSString*, id>*)options error:(NSError** _Nullable)error;
+- (BOOL)startWithOptions:(nullable NSDictionary<NSString*, id>*)options error:(NSError* _Nullable __autoreleasing * _Nullable)error;
 
 /**
  *  Stops the server and prevents it to accepts new HTTP requests.
@@ -458,7 +458,7 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
  *
  *  @warning This method must be used from the main thread only.
  */
-- (BOOL)runWithOptions:(nullable NSDictionary<NSString*, id>*)options error:(NSError** _Nullable)error;
+- (BOOL)runWithOptions:(nullable NSDictionary<NSString*, id>*)options error:(NSError* _Nullable __autoreleasing * _Nullable)error;
 
 #endif
 
