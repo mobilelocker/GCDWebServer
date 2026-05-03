@@ -5,14 +5,20 @@ import PackageDescription
 let package = Package(
     name: "GCDWebServer",
     platforms: [
-        .iOS(.v18),
-        .macOS(.v10_15),
-        .tvOS(.v13)
+        .iOS(.v18)
     ],
     products: [
         .library(
             name: "GCDWebServer",
             targets: ["GCDWebServer"]
+        ),
+        .library(
+            name: "GCDWebDAVServer",
+            targets: ["GCDWebDAVServer"]
+        ),
+        .library(
+            name: "GCDWebUploader",
+            targets: ["GCDWebUploader"]
         )
     ],
     targets: [
@@ -26,10 +32,47 @@ let package = Package(
                 .headerSearchPath("Responses")
             ],
             linkerSettings: [
-                .linkedLibrary("z"),
-                .linkedFramework("CoreServices", .when(platforms: [.iOS, .tvOS])),
-                .linkedFramework("CFNetwork", .when(platforms: [.iOS, .tvOS])),
-                .linkedFramework("SystemConfiguration", .when(platforms: [.macOS]))
+                .linkedLibrary("z")
+            ]
+        ),
+        .target(
+            name: "GCDWebDAVServer",
+            dependencies: ["GCDWebServer"],
+            path: "GCDWebDAVServer",
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("."),
+                .headerSearchPath("../GCDWebServer/Core"),
+                .headerSearchPath("../GCDWebServer/include")
+            ],
+            linkerSettings: [
+                .linkedLibrary("xml2")
+            ]
+        ),
+        .target(
+            name: "GCDWebUploader",
+            dependencies: ["GCDWebServer"],
+            path: "GCDWebUploader",
+            exclude: ["GCDWebUploader.bundle"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("."),
+                .headerSearchPath("../GCDWebServer/Core"),
+                .headerSearchPath("../GCDWebServer/include")
+            ],
+            linkerSettings: [
+                .linkedFramework("SystemConfiguration")
+            ]
+        ),
+        .testTarget(
+            name: "GCDWebServerTests",
+            dependencies: ["GCDWebServer", "GCDWebDAVServer", "GCDWebUploader"],
+            path: "Tests",
+            cSettings: [
+                .headerSearchPath("../GCDWebServer/Core"),
+                .headerSearchPath("../GCDWebServer/include"),
+                .headerSearchPath("../GCDWebDAVServer"),
+                .headerSearchPath("../GCDWebUploader")
             ]
         )
     ]
