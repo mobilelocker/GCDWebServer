@@ -11,6 +11,14 @@ let package = Package(
         .library(
             name: "GCDWebServer",
             targets: ["GCDWebServer"]
+        ),
+        .library(
+            name: "GCDWebDAVServer",
+            targets: ["GCDWebDAVServer"]
+        ),
+        .library(
+            name: "GCDWebUploader",
+            targets: ["GCDWebUploader"]
         )
     ],
     targets: [
@@ -25,6 +33,46 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("z")
+            ]
+        ),
+        .target(
+            name: "GCDWebDAVServer",
+            dependencies: ["GCDWebServer"],
+            path: "GCDWebDAVServer",
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("."),
+                .headerSearchPath("../GCDWebServer/Core"),
+                .headerSearchPath("../GCDWebServer/include")
+            ],
+            linkerSettings: [
+                .linkedLibrary("xml2")
+            ]
+        ),
+        .target(
+            name: "GCDWebUploader",
+            dependencies: ["GCDWebServer"],
+            path: "GCDWebUploader",
+            exclude: ["GCDWebUploader.bundle"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("."),
+                .headerSearchPath("../GCDWebServer/Core"),
+                .headerSearchPath("../GCDWebServer/include")
+            ],
+            linkerSettings: [
+                .linkedFramework("SystemConfiguration")
+            ]
+        ),
+        .testTarget(
+            name: "GCDWebServerTests",
+            dependencies: ["GCDWebServer", "GCDWebDAVServer", "GCDWebUploader"],
+            path: "Tests",
+            cSettings: [
+                .headerSearchPath("../GCDWebServer/Core"),
+                .headerSearchPath("../GCDWebServer/include"),
+                .headerSearchPath("../GCDWebDAVServer"),
+                .headerSearchPath("../GCDWebUploader")
             ]
         )
     ]
