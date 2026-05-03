@@ -5,9 +5,7 @@ import PackageDescription
 let package = Package(
     name: "GCDWebServer",
     platforms: [
-        .iOS(.v18),
-        .macOS(.v10_15),
-        .tvOS(.v13)
+        .iOS(.v18)
     ],
     products: [
         .library(
@@ -26,10 +24,7 @@ let package = Package(
                 .headerSearchPath("Responses")
             ],
             linkerSettings: [
-                .linkedLibrary("z"),
-                .linkedFramework("CoreServices", .when(platforms: [.iOS, .tvOS])),
-                .linkedFramework("CFNetwork", .when(platforms: [.iOS, .tvOS])),
-                .linkedFramework("SystemConfiguration", .when(platforms: [.macOS]))
+                .linkedLibrary("z")
             ]
         )
     ]

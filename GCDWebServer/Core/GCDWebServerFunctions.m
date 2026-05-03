@@ -30,11 +30,7 @@
 #endif
 
 #import <TargetConditionals.h>
-#if TARGET_OS_IPHONE
 #import <CoreServices/CoreServices.h>
-#else
-#import <SystemConfiguration/SystemConfiguration.h>
-#endif
 #import <CommonCrypto/CommonDigest.h>
 
 #import <arpa/inet.h>
@@ -257,35 +253,22 @@ NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOOL inclu
 
 NSString* GCDWebServerGetPrimaryIPAddress(BOOL useIPv6) {
   NSString* address = nil;
-#if TARGET_OS_IPHONE
-#if !TARGET_IPHONE_SIMULATOR && !TARGET_OS_TV
-  const char* primaryInterface = "en0";  // WiFi interface on iOS
-#endif
+#if TARGET_IPHONE_SIMULATOR
+  // In the iOS Simulator, check en0 (Ethernet) and en1 (WiFi) since
+  // SystemConfiguration is not reliable in simulator environments.
+  const char* const simulatorInterfaces[] = {"en0", "en1", NULL};
 #else
-  const char* primaryInterface = NULL;
-  SCDynamicStoreRef store = SCDynamicStoreCreate(kCFAllocatorDefault, CFSTR("GCDWebServer"), NULL, NULL);
-  if (store) {
-    CFPropertyListRef info = SCDynamicStoreCopyValue(store, CFSTR("State:/Network/Global/IPv4"));  // There is no equivalent for IPv6 but the primary interface should be the same
-    if (info) {
-      NSString* interface = [(__bridge NSDictionary*)info objectForKey:@"PrimaryInterface"];
-      if (interface) {
-        primaryInterface = [[NSString stringWithString:interface] UTF8String];  // Copy string to auto-release pool
-      }
-      CFRelease(info);
-    }
-    CFRelease(store);
-  }
-  if (primaryInterface == NULL) {
-    primaryInterface = "lo0";
-  }
+  const char* primaryInterface = "en0";  // WiFi interface on iOS device
 #endif
   struct ifaddrs* list;
   if (getifaddrs(&list) >= 0) {
     for (struct ifaddrs* ifap = list; ifap; ifap = ifap->ifa_next) {
-#if TARGET_IPHONE_SIMULATOR || TARGET_OS_TV
-      // Assume en0 is Ethernet and en1 is WiFi since there is no way to use SystemConfiguration framework in iOS Simulator
-      // Assumption holds for Apple TV running tvOS
-      if (strcmp(ifap->ifa_name, "en0") && strcmp(ifap->ifa_name, "en1"))
+#if TARGET_IPHONE_SIMULATOR
+      BOOL matchedInterface = NO;
+      for (int i = 0; simulatorInterfaces[i] != NULL; i++) {
+        if (strcmp(ifap->ifa_name, simulatorInterfaces[i]) == 0) { matchedInterface = YES; break; }
+      }
+      if (!matchedInterface)
 #else
       if (strcmp(ifap->ifa_name, primaryInterface))
 #endif
