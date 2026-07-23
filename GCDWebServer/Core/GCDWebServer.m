@@ -145,6 +145,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   dispatch_group_t _sourceGroup;
   NSMutableArray<GCDWebServerHandler*>* _handlers;
   NSInteger _activeConnections;  // Accessed through _syncQueue only
+  NSHashTable<GCDWebServerConnection*>* _activeConnectionSet;  // Weak; accessed through _syncQueue only (GCD-3)
   BOOL _connected;  // Accessed on main thread only
   dispatch_block_t _disconnectBlock;  // Accessed on main thread only
 
@@ -181,6 +182,7 @@ static void _ExecuteMainThreadRunLoopSources() {
     _syncQueue = dispatch_queue_create([NSStringFromClass([self class]) UTF8String], DISPATCH_QUEUE_SERIAL);
     _sourceGroup = dispatch_group_create();
     _handlers = [[NSMutableArray alloc] init];
+    _activeConnectionSet = [NSHashTable weakObjectsHashTable];
 #if TARGET_OS_IPHONE
     _backgroundTask = UIBackgroundTaskInvalid;
 #endif
@@ -253,6 +255,7 @@ static void _ExecuteMainThreadRunLoopSources() {
       });
     }
     self->_activeConnections += 1;
+    [self->_activeConnectionSet addObject:connection];
   });
 }
 
@@ -295,6 +298,7 @@ static void _ExecuteMainThreadRunLoopSources() {
   dispatch_sync(_syncQueue, ^{
     GWS_DCHECK(self->_activeConnections > 0);
     self->_activeConnections -= 1;
+    [self->_activeConnectionSet removeObject:connection];
     if (self->_activeConnections == 0) {
       dispatch_async(dispatch_get_main_queue(), ^{
         if ((self->_disconnectDelay > 0.0) && (self->_source4 != NULL)) {
@@ -675,6 +679,16 @@ static inline NSString* _EncodeBase64(NSString* string) {
 
 - (void)_stop {
   GWS_DCHECK(_source4 != NULL);
+
+  // GCD-3: Abort open connections (force async completions + shutdown sockets) before
+  // tearing down the accept sources so stop cannot leave hung handlers.
+  NSArray<GCDWebServerConnection*>* connectionsToAbort = nil;
+  dispatch_sync(_syncQueue, ^{
+    connectionsToAbort = [self->_activeConnectionSet allObjects];
+  });
+  for (GCDWebServerConnection* connection in connectionsToAbort) {
+    [connection abortForServerStop];
+  }
 
   if (_dnsService) {
     _dnsAddress = nil;
