@@ -1,52 +1,27 @@
-# http://guides.cocoapods.org/syntax/podspec.html
-# http://guides.cocoapods.org/making/getting-setup-with-trunk.html
-# $ sudo gem update cocoapods
-# (optional) $ pod trunk register {email} {name} --description={computer}
-# $ pod trunk --verbose push
-# DELETE THIS SECTION BEFORE PROCEEDING!
+# CocoaPods is NOT supported for this Mobile Locker fork.
+# Use Swift Package Manager with:
+#   git@bitbucket.org:vorenusventures/mobilelocker-gcdwebserver.git
+#
+# This podspec is retained only so accidental `pod install` fails loudly
+# with a clear message rather than pulling the stale swisspol 3.5.4 metadata.
 
 Pod::Spec.new do |s|
   s.name     = 'GCDWebServer'
-  s.version  = '3.5.4'
-  s.author   =  { 'Pierre-Olivier Latour' => 'info@pol-online.net' }
+  s.version  = '3.5.8'
+  s.author   = { 'Mobile Locker' => 'mark@mobilelocker.com' }
   s.license  = { :type => 'BSD', :file => 'LICENSE' }
-  s.homepage = 'https://github.com/swisspol/GCDWebServer'
-  s.summary  = 'Lightweight GCD based HTTP server for OS X & iOS (includes web based uploader & WebDAV server)'
-  
-  s.source   = { :git => 'https://github.com/swisspol/GCDWebServer.git', :tag => s.version.to_s }
-  s.ios.deployment_target = '8.0'
-  s.tvos.deployment_target = '9.0'
-  s.osx.deployment_target = '10.7'
+  s.homepage = 'https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver'
+  s.summary  = 'DEPRECATED for CocoaPods — use SPM from Bitbucket (iOS 18+ Mobile Locker fork)'
+  s.source   = { :git => 'https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver.git', :tag => s.version.to_s }
+  s.ios.deployment_target = '18.0'
   s.requires_arc = true
-  
-  s.default_subspec = 'Core'
-  
-  s.subspec 'Core' do |cs|
-    cs.source_files = 'GCDWebServer/**/*.{h,m}'
-    cs.private_header_files = "GCDWebServer/Core/GCDWebServerPrivate.h"
-    cs.requires_arc = true
-    cs.ios.library = 'z'
-    cs.ios.frameworks = 'CoreServices', 'CFNetwork'
-    cs.tvos.library = 'z'
-    cs.tvos.frameworks = 'CoreServices', 'CFNetwork'
-    cs.osx.library = 'z'
-    cs.osx.framework = 'SystemConfiguration'
-  end
-  
-  s.subspec 'WebDAV' do |cs|
-    cs.dependency 'GCDWebServer/Core'
-    cs.source_files = 'GCDWebDAVServer/*.{h,m}'
-    cs.requires_arc = true
-    cs.ios.library = 'xml2'
-    cs.tvos.library = 'xml2'
-    cs.osx.library = 'xml2'
-    cs.compiler_flags = '-I$(SDKROOT)/usr/include/libxml2'
-  end
-  
-  s.subspec 'WebUploader' do |cs|
-    cs.dependency 'GCDWebServer/Core'
-    cs.source_files = 'GCDWebUploader/*.{h,m}'
-    cs.requires_arc = true
-    cs.resource = "GCDWebUploader/GCDWebUploader.bundle"
-  end 
+
+  # Force CocoaPods consumers to migrate to SPM.
+  s.prepare_command = <<-CMD
+    echo "error: GCDWebServer CocoaPods is unsupported in the Mobile Locker fork." >&2
+    echo "error: Use Swift Package Manager: git@bitbucket.org:vorenusventures/mobilelocker-gcdwebserver.git" >&2
+    exit 1
+  CMD
+
+  s.source_files = 'GCDWebServer/**/*.{h,m}'
 end
