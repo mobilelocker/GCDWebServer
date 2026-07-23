@@ -51,10 +51,10 @@ Add to your Xcode project or `Package.swift` using the Bitbucket repo:
 
 ```swift
 // SSH (recommended for private Bitbucket)
-.package(url: "git@bitbucket.org:vorenusventures/mobilelocker-gcdwebserver.git", from: "3.5.8")
+.package(url: "git@bitbucket.org:vorenusventures/mobilelocker-gcdwebserver.git", from: "4.0.0")
 
 // Or HTTPS
-.package(url: "https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver.git", from: "3.5.8")
+.package(url: "https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver.git", from: "4.0.0")
 ```
 
 Available products: `GCDWebServer`, `GCDWebDAVServer`, `GCDWebUploader`.
@@ -62,17 +62,21 @@ Available products: `GCDWebServer`, `GCDWebDAVServer`, `GCDWebUploader`.
 Changelog
 =========
 
-### develop (post-3.5.8 — GCD Jira epic)
-- GCD-2: Skip gzip for HTTP 206 / Content-Range responses
-- GCD-3: Abort in-flight connections and force-complete async handlers on stop
-- GCD-4: `stopWithCompletion:`; auto-suspend off main thread
-- GCD-5: `localhostServerURL`; BindToLocalhost docs for embedded servers
-- GCD-6: Document handler/delegate queues for Swift 6 clients
-- GCD-7: Optional HTTP keep-alive (`EnableKeepAlive` / `MaxKeepAliveRequests`)
-- GCD-8: Expanded SPM tests + Bitbucket Pipelines scaffold
-- GCD-9: File range unsatisfiable → HTTP 416
-- GCD-10: Bitbucket SPM packaging / README
-- GCD-11: Bonjour remains CFNetService (deprecated); Network.framework migration deferred — leave Bonjour off for embedded servers
+### 4.0.0 (reliability for Mobile Locker presentations)
+Breaking / notable for consumers:
+- `stop` aborts open connections and may force async process completions with **503** (call completion at most once)
+- New APIs: `stopWithCompletion:`, `localhostServerURL`
+- New options: `GCDWebServerOption_EnableKeepAlive`, `GCDWebServerOption_MaxKeepAliveRequests`
+- Gzip is skipped for 206 / `Content-Range` responses
+- Unsatisfiable file ranges return **416** (no longer `nil`)
+- Prefer `-stopWithCompletion:` off the main thread; auto-suspend no longer blocks main
+
+Also:
+- GCD-5: BindToLocalhost docs; recommend loopback for embedded WKWebView servers
+- GCD-6: Swift 6 concurrency notes on handler/delegate queues
+- GCD-8: Expanded tests + Bitbucket Pipelines scaffold
+- GCD-10: Bitbucket SPM is the distribution channel; CocoaPods unsupported
+- GCD-11: Bonjour still CFNetService (deprecated); leave disabled for embedded servers
 
 ### 3.5.8
 - Revert Bonjour to CFNetService (NSNetService not visible with iOS 18 deployment target)

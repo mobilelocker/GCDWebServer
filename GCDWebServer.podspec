@@ -7,7 +7,7 @@
 
 Pod::Spec.new do |s|
   s.name     = 'GCDWebServer'
-  s.version  = '3.5.8'
+  s.version  = '4.0.0'
   s.author   = { 'Mobile Locker' => 'mark@mobilelocker.com' }
   s.license  = { :type => 'BSD', :file => 'LICENSE' }
   s.homepage = 'https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver'
