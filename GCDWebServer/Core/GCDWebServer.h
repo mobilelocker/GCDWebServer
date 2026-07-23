@@ -120,9 +120,15 @@ extern NSString* const GCDWebServerOption_RequestNATPortMapping;
 
 /**
  *  Only accept HTTP requests coming from localhost i.e. not from the outside
- *  network (NSNumber / BOOL).
+ *  network (NSNumber / BOOL). When YES, listening sockets bind to loopback
+ *  (`INADDR_LOOPBACK` / `in6addr_loopback`) only.
  *
- *  The default value is NO.
+ *  The default value is NO (all interfaces) for backward compatibility.
+ *
+ *  For embedded servers that only serve a local WKWebView (e.g. Mobile Locker
+ *  presentations), set this to YES so the API is not reachable on the LAN.
+ *  Prefer `localhostServerURL` (always `http://localhost:{port}/`) for loading
+ *  content in the web view — `serverURL` returns a LAN IP unless this option is YES.
  *
  *  @warning Bonjour and NAT port mapping should be disabled if using this option
  *  since the server will not be reachable from the outside network anyway.
@@ -410,9 +416,23 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
 /**
  *  Returns the server's URL.
  *
+ *  Uses `localhost` when `GCDWebServerOption_BindToLocalhost` is YES; otherwise
+ *  the primary IPv4 LAN address. For WKWebView loopback loads, use
+ *  `localhostServerURL` instead.
+ *
  *  @warning This property is only valid if the server is running.
  */
 @property(nonatomic, readonly, nullable) NSURL* serverURL;
+
+/**
+ *  Returns `http://localhost:{port}/` when the server is running, regardless of
+ *  bind address. Intended for embedded clients (WKWebView) that must hit loopback.
+ *
+ *  @warning This property is only valid if the server is running. Connecting to
+ *  this URL only succeeds if the client is on the same device; combine with
+ *  `GCDWebServerOption_BindToLocalhost` to refuse non-loopback peers.
+ */
+@property(nonatomic, readonly, nullable) NSURL* localhostServerURL;
 
 /**
  *  Returns the server's Bonjour URL.

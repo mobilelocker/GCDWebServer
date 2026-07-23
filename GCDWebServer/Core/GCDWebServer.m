@@ -881,6 +881,17 @@ static inline NSString* _EncodeBase64(NSString* string) {
   return nil;
 }
 
+// GCD-5: Always loopback host for embedded WKWebView clients (independent of LAN IP).
+- (NSURL*)localhostServerURL {
+  if (_source4) {
+    if (_port != 80) {
+      return [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%i/", (int)_port]];
+    }
+    return [NSURL URLWithString:@"http://localhost/"];
+  }
+  return nil;
+}
+
 - (NSURL*)bonjourServerURL {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
