@@ -41,6 +41,10 @@ NS_ASSUME_NONNULL_BEGIN
  *  If the handler can handle the request, the block must return a new
  *  GCDWebServerRequest instance created with the same basic info.
  *  Otherwise, it simply returns nil.
+ *
+ *  @note Concurrency (Swift 6 / GCD-6): Invoked on a global concurrent queue at
+ *  `GCDWebServerOption_DispatchQueuePriority` (default DEFAULT), not the main
+ *  queue. Do not touch UIKit/MainActor state without hopping.
  */
 typedef GCDWebServerRequest* _Nullable (^GCDWebServerMatchBlock)(NSString* requestMethod, NSURL* requestURL, NSDictionary<NSString*, NSString*>* requestHeaders, NSString* urlPath, NSDictionary<NSString*, NSString*>* urlQuery);
 
@@ -53,6 +57,10 @@ typedef GCDWebServerRequest* _Nullable (^GCDWebServerMatchBlock)(NSString* reque
  *  result in a 500 HTTP status code returned to the client. It's however
  *  recommended to return a GCDWebServerErrorResponse on error so more useful
  *  information can be returned to the client.
+ *
+ *  @note Concurrency (Swift 6 / GCD-6): Same queue as match blocks (global concurrent
+ *  queue). Prefer `GCDWebServerAsyncProcessBlock` when work needs to hop to actors
+ *  or `Task`s — then call `completionBlock` from any queue (once).
  */
 typedef GCDWebServerResponse* _Nullable (^GCDWebServerProcessBlock)(__kindof GCDWebServerRequest* request);
 
@@ -65,6 +73,14 @@ typedef GCDWebServerResponse* _Nullable (^GCDWebServerProcessBlock)(__kindof GCD
  *  or nil on error, which will result in a 500 HTTP status code returned to the client.
  *  It's however recommended to return a GCDWebServerErrorResponse on error so more
  *  useful information can be returned to the client.
+ *
+ *  @note Concurrency (Swift 6 / GCD-6):
+ *  - The process block itself runs on a global concurrent GCD queue.
+ *  - `completionBlock` may be invoked from any queue, exactly once (server stop
+ *    may force a 503 if still pending — see -stop).
+ *  - Blocks and `GCDWebServerResponse` are not Swift `Sendable`; Swift 6 clients
+ *    typically use `@preconcurrency import GCDWebServer` and wrap completions
+ *    when hopping into `Task` / actors (Mobile Locker MLI-1568 pattern).
  */
 typedef void (^GCDWebServerCompletionBlock)(GCDWebServerResponse* _Nullable response);
 typedef void (^GCDWebServerAsyncProcessBlock)(__kindof GCDWebServerRequest* request, GCDWebServerCompletionBlock completionBlock);
@@ -242,7 +258,13 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
 /**
  *  Delegate methods for GCDWebServer.
  *
- *  @warning These methods are always called on the main thread in a serialized way.
+ *  @warning These methods are always called on the main thread in a serialized way
+ *  (except as noted historically for some internal paths — prefer assuming main
+ *  for `webServerDidStart:` / `webServerDidStop:` / connect / disconnect).
+ *
+ *  @note Concurrency (Swift 6 / GCD-6): Mark conforming types carefully. Prefer
+ *  hopping to `@MainActor` explicitly in Swift rather than reading non-isolated
+ *  mutable state inside these callbacks.
  */
 @protocol GCDWebServerDelegate <NSObject>
 @optional
