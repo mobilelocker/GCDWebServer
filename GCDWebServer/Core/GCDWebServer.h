@@ -212,6 +212,9 @@ extern NSString* const GCDWebServerOption_DispatchQueuePriority;
  *  The default value is YES.
  *
  *  @warning The running property will be NO while the GCDWebServer is suspended.
+ *
+ *  @warning Suspend/resume work runs on an internal background queue so the main
+ *  thread is not blocked by listening-socket teardown (GCD-4).
  */
 extern NSString* const GCDWebServerOption_AutomaticallySuspendInBackground;
 
@@ -386,9 +389,19 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
  *  tolerate a late completion call (it is ignored after the first).
  *
  *  @warning This method may block the calling thread while listening sockets are
- *  closed. Prefer -stopWithCompletion: from the main thread (see GCD-4).
+ *  closed. Do not call from the main thread; use -stopWithCompletion: instead.
+ *  A warning is logged if invoked on the main thread.
  */
 - (void)stop;
+
+/**
+ *  Stops the server asynchronously on an internal serial queue and invokes
+ *  `completion` on the main queue when finished (may be NULL).
+ *
+ *  Preferred from UI / main-thread code to avoid priority inversion when
+ *  `dispatch_group_wait` runs during listening-socket teardown.
+ */
+- (void)stopWithCompletion:(nullable void (^)(void))completion;
 
 @end
 
