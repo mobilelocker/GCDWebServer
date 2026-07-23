@@ -142,6 +142,7 @@ static void _ExecuteMainThreadRunLoopSources() {
 
 @implementation GCDWebServer {
   dispatch_queue_t _syncQueue;
+  dispatch_queue_t _lifecycleQueue;  // GCD-4: serial queue for stop / auto-suspend (never block main)
   dispatch_group_t _sourceGroup;
   NSMutableArray<GCDWebServerHandler*>* _handlers;
   NSInteger _activeConnections;  // Accessed through _syncQueue only
@@ -180,6 +181,7 @@ static void _ExecuteMainThreadRunLoopSources() {
 - (instancetype)init {
   if ((self = [super init])) {
     _syncQueue = dispatch_queue_create([NSStringFromClass([self class]) UTF8String], DISPATCH_QUEUE_SERIAL);
+    _lifecycleQueue = dispatch_queue_create([[NSString stringWithFormat:@"%@.lifecycle", NSStringFromClass([self class])] UTF8String], DISPATCH_QUEUE_SERIAL);
     _sourceGroup = dispatch_group_create();
     _handlers = [[NSMutableArray alloc] init];
     _activeConnectionSet = [NSHashTable weakObjectsHashTable];
@@ -198,6 +200,7 @@ static void _ExecuteMainThreadRunLoopSources() {
 
 #if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
   dispatch_release(_sourceGroup);
+  dispatch_release(_lifecycleQueue);
   dispatch_release(_syncQueue);
 #endif
 }
@@ -265,13 +268,25 @@ static void _ExecuteMainThreadRunLoopSources() {
 - (void)_endBackgroundTask {
   GWS_DCHECK([NSThread isMainThread]);
   if (_backgroundTask != UIBackgroundTaskInvalid) {
-    if (!_GCDWebServerIsAppExtension()) {
-      if (_suspendInBackground && ([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground) && _source4) {
-        [self _stop];
-      }
-      [[UIApplication sharedApplication] endBackgroundTask:_backgroundTask];
-    }
+    UIBackgroundTaskIdentifier task = _backgroundTask;
     _backgroundTask = UIBackgroundTaskInvalid;
+    if (!_GCDWebServerIsAppExtension()) {
+      // GCD-4: never run blocking _stop on the main thread (priority inversion).
+      BOOL shouldStop = _suspendInBackground && ([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground) && (_source4 != NULL);
+      if (shouldStop) {
+        dispatch_async(_lifecycleQueue, ^{
+          if (self->_source4) {
+            [self _stop];
+          }
+          dispatch_async(dispatch_get_main_queue(), ^{
+            [[UIApplication sharedApplication] endBackgroundTask:task];
+            GWS_LOG_DEBUG(@"Did end background task");
+          });
+        });
+        return;
+      }
+      [[UIApplication sharedApplication] endBackgroundTask:task];
+    }
     GWS_LOG_DEBUG(@"Did end background task");
   }
 }
@@ -764,8 +779,13 @@ static inline NSString* _EncodeBase64(NSString* string) {
 - (void)_didEnterBackground:(NSNotification*)notification {
   GWS_DCHECK([NSThread isMainThread]);
   GWS_LOG_DEBUG(@"Did enter background");
+  // GCD-4: hop off main — _stop waits on accept-source cancellation (dispatch_group_wait).
   if ((_backgroundTask == UIBackgroundTaskInvalid) && _source4) {
-    [self _stop];
+    dispatch_async(_lifecycleQueue, ^{
+      if (self->_source4) {
+        [self _stop];
+      }
+    });
   }
 }
 
@@ -773,7 +793,11 @@ static inline NSString* _EncodeBase64(NSString* string) {
   GWS_DCHECK([NSThread isMainThread]);
   GWS_LOG_DEBUG(@"Will enter foreground");
   if (!_source4) {
-    [self _start:NULL];  // TODO: There's probably nothing we can do on failure
+    dispatch_async(_lifecycleQueue, ^{
+      if (!self->_source4) {
+        [self _start:NULL];  // TODO: There's probably nothing we can do on failure
+      }
+    });
   }
 }
 
@@ -810,6 +834,9 @@ static inline NSString* _EncodeBase64(NSString* string) {
 }
 
 - (void)stop {
+  if ([NSThread isMainThread]) {
+    GWS_LOG_WARNING(@"- [%@ stop] called on the main thread; this may block until listening sockets close. Prefer -stopWithCompletion:.", [self class]);
+  }
   if (_options) {
 #if TARGET_OS_IPHONE
     if (_suspendInBackground) {
@@ -824,6 +851,16 @@ static inline NSString* _EncodeBase64(NSString* string) {
   } else {
     GWS_DNOT_REACHED();
   }
+}
+
+// GCD-4: Non-blocking stop for main-thread / UI callers.
+- (void)stopWithCompletion:(void (^)(void))completion {
+  dispatch_async(_lifecycleQueue, ^{
+    [self stop];
+    if (completion) {
+      dispatch_async(dispatch_get_main_queue(), completion);
+    }
+  });
 }
 
 @end
