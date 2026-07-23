@@ -156,6 +156,10 @@ typedef void (^GCDWebServerBodyReaderCompletionBlock)(NSData* _Nullable data, NS
  *  since the length of the body is not known anymore. The client will still
  *  be able to determine the body length when connection is closed per
  *  HTTP/1.1 specifications.
+ *
+ *  @warning Gzip is automatically skipped for HTTP 206 Partial Content responses
+ *  and any response that already has a "Content-Range" header. Range semantics
+ *  refer to the uncompressed entity; gzip + ranges are mutually exclusive.
  */
 @property(nonatomic, getter=isGZipContentEncodingEnabled) BOOL gzipContentEncodingEnabled;
 

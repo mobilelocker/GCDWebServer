@@ -196,10 +196,16 @@
 
 - (void)prepareForReading {
   _reader = self;
-  if (_gzipContentEncodingEnabled) {
+  // GCD-2: Never gzip partial/range responses. Content-Range describes uncompressed
+  // entity bytes; applying Content-Encoding: gzip would break Range clients (media seeking).
+  BOOL isPartialContent = (_statusCode == kGCDWebServerHTTPStatusCode_PartialContent);
+  BOOL hasContentRange = (_additionalHeaders[@"Content-Range"] != nil);
+  if (_gzipContentEncodingEnabled && !isPartialContent && !hasContentRange) {
     GCDWebServerGZipEncoder* encoder = [[GCDWebServerGZipEncoder alloc] initWithResponse:self reader:_reader];
     [_encoders addObject:encoder];
     _reader = encoder;
+  } else if (_gzipContentEncodingEnabled && (isPartialContent || hasContentRange)) {
+    GWS_LOG_DEBUG(@"Skipping gzip content encoding for byte-range / 206 response");
   }
 }
 
