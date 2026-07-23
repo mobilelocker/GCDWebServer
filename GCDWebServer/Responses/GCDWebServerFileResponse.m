@@ -99,8 +99,17 @@ static inline NSDate* _NSDateFromTimeSpec(const struct timespec* t) {
       range.length = MIN(range.length, fileSize);
       range.location = fileSize - range.length;
     }
+    // GCD-9: RFC 7233 — unsatisfiable range → 416 with Content-Range: bytes */{size}
     if (range.length == 0) {
-      return nil;  // TODO: Return 416 status code and "Content-Range: bytes */{file length}" header
+      if ((self = [super init])) {
+        self.statusCode = kGCDWebServerHTTPStatusCode_RequestedRangeNotSatisfiable;
+        [self setValue:[NSString stringWithFormat:@"bytes */%lu", (unsigned long)fileSize] forAdditionalHeader:@"Content-Range"];
+        _path = [path copy];
+        _offset = 0;
+        _size = 0;
+        GWS_LOG_DEBUG(@"Unsatisfiable byte range for file \"%@\" (size %lu)", path, (unsigned long)fileSize);
+      }
+      return self;
     }
   } else {
     range.location = 0;
