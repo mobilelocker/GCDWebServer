@@ -72,6 +72,7 @@ Changelog
 - GCD-8: Expanded SPM tests + Bitbucket Pipelines scaffold
 - GCD-9: File range unsatisfiable → HTTP 416
 - GCD-10: Bitbucket SPM packaging / README
+- GCD-11: Bonjour remains CFNetService (deprecated); Network.framework migration deferred — leave Bonjour off for embedded servers
 
 ### 3.5.8
 - Revert Bonjour to CFNetService (NSNetService not visible with iOS 18 deployment target)
