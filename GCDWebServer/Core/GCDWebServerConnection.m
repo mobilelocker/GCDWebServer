@@ -90,6 +90,9 @@ NS_ASSUME_NONNULL_END
   BOOL _processCompletionInvoked;
   GCDWebServerCompletionBlock _pendingProcessCompletion;
   BOOL _abortedForStop;
+  // GCD-7 keep-alive
+  BOOL _keepAliveForResponse;
+  NSUInteger _requestsServedOnConnection;
 #ifdef __GCDWEBSERVER_ENABLE_TESTING__
   NSUInteger _connectionIndex;
   NSString* _requestPath;
@@ -132,9 +135,31 @@ NS_ASSUME_NONNULL_END
 - (void)_initializeResponseHeadersWithStatusCode:(NSInteger)statusCode {
   _statusCode = statusCode;
   _responseMessage = CFHTTPMessageCreateResponse(kCFAllocatorDefault, statusCode, NULL, kCFHTTPVersion1_1);
-  CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Connection"), CFSTR("Close"));
+  // GCD-7: keep-alive when enabled, client did not ask to close, and under max requests.
+  NSString* connectionValue = _keepAliveForResponse ? @"keep-alive" : @"close";
+  CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Connection"), (__bridge CFStringRef)connectionValue);
   CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Server"), (__bridge CFStringRef)_server.serverName);
   CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Date"), (__bridge CFStringRef)GCDWebServerFormatRFC822([NSDate date]));
+}
+
+// GCD-7: Clear per-request state so the same socket can read the next request.
+- (void)_resetForNextRequest {
+  if (_requestMessage) {
+    CFRelease(_requestMessage);
+    _requestMessage = NULL;
+  }
+  if (_responseMessage) {
+    CFRelease(_responseMessage);
+    _responseMessage = NULL;
+  }
+  _request = nil;
+  _handler = nil;
+  _response = nil;
+  _statusCode = 0;
+  _virtualHEAD = NO;
+  _processCompletionInvoked = NO;
+  _pendingProcessCompletion = nil;
+  _keepAliveForResponse = NO;
 }
 
 - (void)_startProcessingRequest {
@@ -173,6 +198,15 @@ NS_ASSUME_NONNULL_END
   }
 
   if (_response) {
+    // GCD-7: decide keep-alive before writing headers.
+    BOOL clientClose = NO;
+    NSString* requestConnection = GCDWebServerNormalizeHeaderValue([_request.headers objectForKey:@"Connection"]);
+    if (requestConnection && [requestConnection caseInsensitiveCompare:@"close"] == NSOrderedSame) {
+      clientClose = YES;
+    }
+    _requestsServedOnConnection += 1;
+    _keepAliveForResponse = _server.enableKeepAlive && !_abortedForStop && !clientClose && (_requestsServedOnConnection < _server.maxKeepAliveRequests) && (_response.statusCode != kGCDWebServerHTTPStatusCode_ServiceUnavailable);
+
     [self _initializeResponseHeadersWithStatusCode:_response.statusCode];
     if (_response.lastModifiedDate) {
       CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Last-Modified"), (__bridge CFStringRef)GCDWebServerFormatRFC822((NSDate*)_response.lastModifiedDate));
@@ -199,12 +233,20 @@ NS_ASSUME_NONNULL_END
     [_response.additionalHeaders enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL* stop) {
       CFHTTPMessageSetHeaderFieldValue(self->_responseMessage, (__bridge CFStringRef)key, (__bridge CFStringRef)obj);
     }];
+    BOOL keepAlive = _keepAliveForResponse;
     [self writeHeadersWithCompletionBlock:^(BOOL success) {
       if (success) {
         if (hasBody) {
           [self writeBodyWithCompletionBlock:^(BOOL successInner) {
             [self->_response performClose];  // TODO: There's nothing we can do on failure as headers have already been sent
+            if (successInner && keepAlive && !self->_abortedForStop) {
+              [self _resetForNextRequest];
+              [self _readRequestHeaders];
+            }
           }];
+        } else if (keepAlive && !self->_abortedForStop) {
+          [self _resetForNextRequest];
+          [self _readRequestHeaders];
         }
       } else if (hasBody) {
         [self->_response performClose];
