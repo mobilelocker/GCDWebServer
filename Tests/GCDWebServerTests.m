@@ -6,6 +6,7 @@
 #import "GCDWebServerFunctions.h"
 #import "GCDWebServerDataRequest.h"
 #import "GCDWebServerDataResponse.h"
+#import "GCDWebServerFileResponse.h"
 #import "GCDWebDAVServer.h"
 #import "GCDWebUploader.h"
 
@@ -15,6 +16,12 @@
 @end
 
 @implementation GCDWebServerTests
+
+- (NSString*)_tempFileWithContents:(NSData*)data {
+  NSString* path = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+  XCTAssertTrue([data writeToFile:path atomically:YES]);
+  return path;
+}
 
 - (void)testWebServer {
   GCDWebServer* server = [[GCDWebServer alloc] init];
@@ -94,6 +101,99 @@
   [self waitForExpectationsWithTimeout:5.0 handler:nil];
   XCTAssertEqualObjects(receivedBody, body);
   [server stop];
+}
+
+// GCD-2 / GCD-8: ranged GET with gzip enabled must not apply Content-Encoding: gzip.
+- (void)testRangeResponseSkipsGzip {
+  NSData* fileData = [@"0123456789ABCDEFGHIJ" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString* path = [self _tempFileWithContents:fileData];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/file"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   GCDWebServerFileResponse* response = [GCDWebServerFileResponse responseWithFile:path byteRange:request.byteRange];
+                   response.gzipContentEncodingEnabled = YES;
+                   return response;
+                 }];
+  NSError* startError = nil;
+  XCTAssertTrue([server startWithOptions:@{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES} error:&startError], @"%@", startError);
+  NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%lu/file", (unsigned long)server.port]];
+  NSMutableURLRequest* req = [NSMutableURLRequest requestWithURL:url];
+  [req setValue:@"bytes=0-4" forHTTPHeaderField:@"Range"];
+  [req setValue:@"gzip" forHTTPHeaderField:@"Accept-Encoding"];
+  XCTestExpectation* done = [self expectationWithDescription:@"range"];
+  [[NSURLSession.sharedSession dataTaskWithRequest:req completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+    XCTAssertNil(error);
+    NSHTTPURLResponse* http = (NSHTTPURLResponse*)response;
+    XCTAssertEqual(http.statusCode, 206);
+    XCTAssertNil(http.allHeaderFields[@"Content-Encoding"]);
+    XCTAssertEqualObjects([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding], @"01234");
+    [done fulfill];
+  }] resume];
+  [self waitForExpectationsWithTimeout:5.0 handler:nil];
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+}
+
+// GCD-9: unsatisfiable range → 416
+- (void)testUnsatisfiableRangeReturns416 {
+  NSData* fileData = [@"short" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString* path = [self _tempFileWithContents:fileData];
+  GCDWebServerFileResponse* response = [GCDWebServerFileResponse responseWithFile:path byteRange:NSMakeRange(100, 10)];
+  XCTAssertNotNil(response);
+  XCTAssertEqual(response.statusCode, 416);
+  [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+}
+
+// GCD-5: localhostServerURL
+- (void)testLocalhostServerURL {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addDefaultHandlerForMethod:@"GET"
+                        requestClass:[GCDWebServerRequest class]
+                        processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                          return [GCDWebServerDataResponse responseWithText:@"ok"];
+                        }];
+  NSError* startError = nil;
+  XCTAssertTrue([server startWithOptions:@{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES} error:&startError], @"%@", startError);
+  NSURL* local = server.localhostServerURL;
+  XCTAssertNotNil(local);
+  XCTAssertEqualObjects(local.host, @"localhost");
+  XCTAssertEqual(local.port.unsignedIntegerValue, server.port);
+  [server stop];
+}
+
+// GCD-3: async handler + stop must not hang
+- (void)testStopAbortsPendingAsyncHandler {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  XCTestExpectation* processStarted = [self expectationWithDescription:@"process started"];
+  __block GCDWebServerCompletionBlock heldCompletion = nil;
+  [server addHandlerForMethod:@"GET"
+                         path:@"/hold"
+                 requestClass:[GCDWebServerRequest class]
+          asyncProcessBlock:^(GCDWebServerRequest* request, GCDWebServerCompletionBlock completionBlock) {
+            heldCompletion = [completionBlock copy];
+            [processStarted fulfill];
+          }];
+  NSError* startError = nil;
+  XCTAssertTrue([server startWithOptions:@{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES} error:&startError], @"%@", startError);
+  NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%lu/hold", (unsigned long)server.port]];
+  XCTestExpectation* clientDone = [self expectationWithDescription:@"client"];
+  [[NSURLSession.sharedSession dataTaskWithRequest:[NSURLRequest requestWithURL:url]
+                                 completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+                                   // Connection may fail or return 503 after abort — either is fine; must complete.
+                                   [clientDone fulfill];
+                                 }] resume];
+  [self waitForExpectations:@[ processStarted ] timeout:5.0];
+  XCTestExpectation* stopped = [self expectationWithDescription:@"stopped"];
+  [server stopWithCompletion:^{
+    [stopped fulfill];
+  }];
+  [self waitForExpectations:@[ stopped, clientDone ] timeout:5.0];
+  // Late completion must be safe (ignored).
+  if (heldCompletion) {
+    heldCompletion([GCDWebServerDataResponse responseWithText:@"late"]);
+  }
 }
 
 @end

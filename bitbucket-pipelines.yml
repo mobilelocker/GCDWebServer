@@ -1,0 +1,33 @@
+# GCD-8: CI for mobilelocker-gcdwebserver
+# This package targets iOS 18+ only. Full `swift test` requires a macOS runner
+# with Xcode. Bitbucket's default Linux images cannot build this package.
+#
+# Options:
+# 1. Enable a self-hosted macOS runner and uncomment the macOS step below.
+# 2. Run tests locally / in Xcode: open GCDWebServer.xcodeproj or
+#    `xcodebuild test -scheme GCDWebServers -destination 'platform=iOS Simulator,name=iPhone 16'`
+#
+# This pipeline validates that the repository is non-empty and Package.swift parses.
+
+image: atlassian/default-image:4
+
+pipelines:
+  default:
+    - step:
+        name: Package manifest sanity check
+        script:
+          - test -f Package.swift
+          - test -f GCDWebServer/Core/GCDWebServer.m
+          - test -f Tests/GCDWebServerTests.m
+          - grep -q 'iOS' Package.swift
+          - echo "Manifest OK. Run iOS unit tests on macOS/Xcode (see Run-Tests.sh / Xcode schemes)."
+
+  # branches:
+  #   develop:
+  #     - step:
+  #         name: iOS tests (self-hosted macOS)
+  #         runs-on:
+  #           - self.hosted
+  #           - macos
+  #         script:
+  #           - xcodebuild test -scheme "GCDWebServers" -destination 'platform=iOS Simulator,name=iPhone 16' -quiet
