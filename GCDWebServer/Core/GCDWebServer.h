@@ -105,6 +105,11 @@ extern NSString* const GCDWebServerOption_Port;
  *  option. If this option is set to nil, Bonjour will be disabled.
  *
  *  The default value is nil.
+ *
+ *  @warning Implementation still uses deprecated `CFNetService` APIs (GCD-11).
+ *  An NSNetService migration was attempted and reverted on iOS 18. Prefer leaving
+ *  Bonjour disabled for embedded localhost servers (Mobile Locker presentations
+ *  do not use Bonjour). A Network.framework replacement is deferred tech debt.
  */
 extern NSString* const GCDWebServerOption_BonjourName;
 
