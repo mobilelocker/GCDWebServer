@@ -1,5 +1,7 @@
-> **This is a MobilLocker fork** of [swisspol/GCDWebServer](https://github.com/swisspol/GCDWebServer).
+> **This is a Mobile Locker fork** of [swisspol/GCDWebServer](https://github.com/swisspol/GCDWebServer).
+> Hosted on **Bitbucket**: [vorenusventures/mobilelocker-gcdwebserver](https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver).
 > It targets **iOS 18+** only. See [Changelog](#changelog) for what changed.
+> Issues are tracked in Jira project **GCD** (not GitHub).
 
 ---
 
@@ -33,8 +35,8 @@ Included extensions:
 * [GCDWebDAVServer](GCDWebDAVServer/GCDWebDAVServer.h): subclass of ```GCDWebServer``` that implements a class 1 [WebDAV](https://en.wikipedia.org/wiki/WebDAV) server (with partial class 2 support for macOS Finder)
 
 What's not supported (but not really required from an embedded HTTP server):
-* Keep-alive connections
 * HTTPS
+* Keep-alive is **optional** (off by default; enable with `GCDWebServerOption_EnableKeepAlive`)
 
 Requirements (this fork):
 * iOS 18.0 or later
@@ -43,16 +45,36 @@ Requirements (this fork):
 Installation (Swift Package Manager)
 =====================================
 
-Add to your `Package.swift`:
+**Preferred distribution for this fork.** CocoaPods is not supported (stale podspec retained only for reference).
+
+Add to your Xcode project or `Package.swift` using the Bitbucket repo:
 
 ```swift
-.package(url: "https://github.com/mobilelocker/GCDWebServer.git", from: "3.5.6")
+// SSH (recommended for private Bitbucket)
+.package(url: "git@bitbucket.org:vorenusventures/mobilelocker-gcdwebserver.git", from: "3.5.8")
+
+// Or HTTPS
+.package(url: "https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver.git", from: "3.5.8")
 ```
 
 Available products: `GCDWebServer`, `GCDWebDAVServer`, `GCDWebUploader`.
 
 Changelog
 =========
+
+### develop (post-3.5.8 — GCD Jira epic)
+- GCD-2: Skip gzip for HTTP 206 / Content-Range responses
+- GCD-3: Abort in-flight connections and force-complete async handlers on stop
+- GCD-4: `stopWithCompletion:`; auto-suspend off main thread
+- GCD-5: `localhostServerURL`; BindToLocalhost docs for embedded servers
+- GCD-6: Document handler/delegate queues for Swift 6 clients
+- GCD-7: Optional HTTP keep-alive (`EnableKeepAlive` / `MaxKeepAliveRequests`)
+- GCD-8: Expanded SPM tests + Bitbucket Pipelines scaffold
+- GCD-9: File range unsatisfiable → HTTP 416
+- GCD-10: Bitbucket SPM packaging / README
+
+### 3.5.8
+- Revert Bonjour to CFNetService (NSNetService not visible with iOS 18 deployment target)
 
 ### 3.5.6 (iOS 18+ modernization)
 - Deployment target bumped to iOS 18; `swift-tools-version` bumped to 6.0
