@@ -182,6 +182,8 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
 
 @interface GCDWebServerConnection ()
 - (instancetype)initWithServer:(GCDWebServer*)server localAddress:(NSData*)localAddress remoteAddress:(NSData*)remoteAddress socket:(CFSocketNativeHandle)socket;
+/// GCD-3: Abort pending async processing and shut down the socket (server stop).
+- (void)abortForServerStop;
 @end
 
 @interface GCDWebServer ()

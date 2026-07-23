@@ -378,11 +378,15 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
 - (BOOL)startWithOptions:(nullable NSDictionary<NSString*, id>*)options error:(NSError* _Nullable __autoreleasing * _Nullable)error;
 
 /**
- *  Stops the server and prevents it to accepts new HTTP requests.
+ *  Stops the server and prevents it from accepting new HTTP requests.
  *
- *  @warning Stopping the server does not abort GCDWebServerConnection instances
- *  currently handling already received HTTP requests. These connections will
- *  continue to execute normally until completion.
+ *  Open connections are aborted: pending async process completions are invoked
+ *  once with a 503 Service Unavailable response (if still outstanding), and
+ *  sockets are shut down so in-flight I/O fails promptly. Handlers must still
+ *  tolerate a late completion call (it is ignored after the first).
+ *
+ *  @warning This method may block the calling thread while listening sockets are
+ *  closed. Prefer -stopWithCompletion: from the main thread (see GCD-4).
  */
 - (void)stop;
 

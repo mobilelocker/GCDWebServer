@@ -86,6 +86,10 @@ NS_ASSUME_NONNULL_END
   NSInteger _statusCode;
 
   BOOL _opened;
+  // GCD-3: serialize process completion so stop can force-finish async handlers once.
+  BOOL _processCompletionInvoked;
+  GCDWebServerCompletionBlock _pendingProcessCompletion;
+  BOOL _abortedForStop;
 #ifdef __GCDWEBSERVER_ENABLE_TESTING__
   NSUInteger _connectionIndex;
   NSString* _requestPath;
@@ -756,7 +760,52 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
 
 - (void)processRequest:(GCDWebServerRequest*)request completion:(GCDWebServerCompletionBlock)completion {
   GWS_LOG_DEBUG(@"Connection on socket %i processing request \"%@ %@\" with %lu bytes body", _socket, _virtualHEAD ? @"HEAD" : _request.method, _request.path, (unsigned long)_totalBytesRead);
-  _handler.asyncProcessBlock(request, [completion copy]);
+  // GCD-3: Ensure completion runs at most once (handler or abortForServerStop).
+  GCDWebServerCompletionBlock once = [^(GCDWebServerResponse* processResponse) {
+    GCDWebServerCompletionBlock outer = nil;
+    @synchronized(self) {
+      if (self->_processCompletionInvoked) {
+        return;
+      }
+      self->_processCompletionInvoked = YES;
+      outer = completion;
+      self->_pendingProcessCompletion = nil;
+    }
+    if (outer) {
+      outer(processResponse);
+    }
+  } copy];
+  @synchronized(self) {
+    if (_abortedForStop) {
+      once([GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_ServiceUnavailable]);
+      return;
+    }
+    _processCompletionInvoked = NO;
+    _pendingProcessCompletion = once;
+  }
+  _handler.asyncProcessBlock(request, once);
+}
+
+- (void)abortForServerStop {
+  GCDWebServerCompletionBlock pending = nil;
+  @synchronized(self) {
+    if (_abortedForStop) {
+      return;
+    }
+    _abortedForStop = YES;
+    if (!_processCompletionInvoked && _pendingProcessCompletion) {
+      pending = _pendingProcessCompletion;
+    }
+  }
+  GWS_LOG_DEBUG(@"Aborting connection on socket %i for server stop", _socket);
+  // Force-complete async handlers so they cannot hang after stop (MLI-1575 / GCD-3).
+  if (pending) {
+    pending([GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_ServiceUnavailable]);
+  }
+  // Tear down the TCP stream so any in-flight dispatch_read/write fails promptly.
+  if (_socket >= 0) {
+    shutdown(_socket, SHUT_RDWR);
+  }
 }
 
 // http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.25
