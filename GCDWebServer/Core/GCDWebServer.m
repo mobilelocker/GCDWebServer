@@ -75,6 +75,8 @@ NSString* const GCDWebServerOption_AutomaticallyMapHEADToGET = @"AutomaticallyMa
 NSString* const GCDWebServerOption_ConnectedStateCoalescingInterval = @"ConnectedStateCoalescingInterval";
 NSString* const GCDWebServerOption_DispatchQueuePriority = @"DispatchQueuePriority";
 NSString* const GCDWebServerOption_AutomaticallySuspendInBackground = @"AutomaticallySuspendInBackground";
+NSString* const GCDWebServerOption_EnableKeepAlive = @"EnableKeepAlive";
+NSString* const GCDWebServerOption_MaxKeepAliveRequests = @"MaxKeepAliveRequests";
 
 NSString* const GCDWebServerAuthenticationMethod_Basic = @"Basic";
 NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
@@ -165,6 +167,8 @@ static void _ExecuteMainThreadRunLoopSources() {
   NSString* _dnsAddress;
   NSUInteger _dnsPort;
   BOOL _bindToLocalhost;
+  BOOL _enableKeepAlive;  // GCD-7
+  NSUInteger _maxKeepAliveRequests;  // GCD-7
 #if TARGET_OS_IPHONE
   BOOL _suspendInBackground;
   UIBackgroundTaskIdentifier _backgroundTask;
@@ -172,6 +176,15 @@ static void _ExecuteMainThreadRunLoopSources() {
 #ifdef __GCDWEBSERVER_ENABLE_TESTING__
   BOOL _recording;
 #endif
+}
+
+// Expose keep-alive options to connections (GCD-7).
+- (BOOL)enableKeepAlive {
+  return _enableKeepAlive;
+}
+
+- (NSUInteger)maxKeepAliveRequests {
+  return _maxKeepAliveRequests;
 }
 
 + (void)initialize {
@@ -601,6 +614,12 @@ static inline NSString* _EncodeBase64(NSString* string) {
   _source6 = [self _createDispatchSourceWithListeningSocket:listeningSocket6 isIPv6:YES];
   _port = port;
   _bindToLocalhost = bindToLocalhost;
+  // GCD-7
+  _enableKeepAlive = [(NSNumber*)_GetOption(_options, GCDWebServerOption_EnableKeepAlive, @NO) boolValue];
+  _maxKeepAliveRequests = [(NSNumber*)_GetOption(_options, GCDWebServerOption_MaxKeepAliveRequests, @100) unsignedIntegerValue];
+  if (_maxKeepAliveRequests == 0) {
+    _maxKeepAliveRequests = 100;
+  }
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -752,6 +771,8 @@ static inline NSString* _EncodeBase64(NSString* string) {
   _source4 = NULL;
   _port = 0;
   _bindToLocalhost = NO;
+  _enableKeepAlive = NO;
+  _maxKeepAliveRequests = 0;
 
   _serverName = nil;
   _authenticationRealm = nil;

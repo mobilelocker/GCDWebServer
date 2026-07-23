@@ -241,6 +241,26 @@ extern NSString* const GCDWebServerOption_DispatchQueuePriority;
 extern NSString* const GCDWebServerOption_AutomaticallySuspendInBackground;
 
 /**
+ *  Enable HTTP/1.1 keep-alive so multiple requests can reuse one TCP connection
+ *  (NSNumber / BOOL). Default is NO (each response uses Connection: close).
+ *
+ *  When YES, responses use Connection: keep-alive unless the client sent
+ *  Connection: close, the response is a forced stop abort (503), or the per-connection
+ *  request limit is reached. After a successful response the server reads the next
+ *  request on the same socket.
+ *
+ *  @warning Long-lived async handlers hold the connection for the whole request;
+ *  keep-alive only applies between completed requests.
+ */
+extern NSString* const GCDWebServerOption_EnableKeepAlive;
+
+/**
+ *  Maximum number of HTTP requests to serve on one keep-alive connection
+ *  (NSNumber / NSUInteger). Default is 100. Ignored unless EnableKeepAlive is YES.
+ */
+extern NSString* const GCDWebServerOption_MaxKeepAliveRequests;
+
+/**
  *  HTTP Basic Authentication scheme (see https://tools.ietf.org/html/rfc2617).
  *
  *  @warning Use of this authentication scheme is not recommended as the
