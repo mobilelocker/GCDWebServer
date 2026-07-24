@@ -146,6 +146,72 @@ static inline NSDate* _NSDateFromTimeSpec(const struct timespec* t) {
   return self;
 }
 
+// GCD-17: Safe resolve of URL path under a document root (no traversal).
+static NSString* _GCDWebServerResolvedPathUnderRoot(NSString* documentRoot, NSString* urlPath, BOOL allowIndexHTML) {
+  if (documentRoot.length == 0) {
+    return nil;
+  }
+  NSString* root = [[[documentRoot stringByStandardizingPath] stringByResolvingSymlinksInPath] copy];
+  if (root.length == 0) {
+    return nil;
+  }
+
+  NSString* relative = urlPath ?: @"";
+  if ([relative hasPrefix:@"/"]) {
+    relative = [relative substringFromIndex:1];
+  }
+  // Percent-decode once (request.path may still be encoded for some clients).
+  NSString* unescaped = GCDWebServerUnescapeURLString(relative);
+  if (unescaped) {
+    relative = unescaped;
+  }
+  relative = GCDWebServerNormalizePath(relative);
+
+  NSString* candidate = relative.length ? [root stringByAppendingPathComponent:relative] : root;
+  candidate = [[candidate stringByStandardizingPath] stringByResolvingSymlinksInPath];
+
+  // Containment: equal to root or strictly under root + "/".
+  if (![candidate isEqualToString:root] && ![candidate hasPrefix:[root stringByAppendingString:@"/"]]) {
+    GWS_LOG_WARNING(@"Rejected path traversal outside root: \"%@\" (root \"%@\")", candidate, root);
+    return nil;
+  }
+
+  BOOL isDirectory = NO;
+  if (![[NSFileManager defaultManager] fileExistsAtPath:candidate isDirectory:&isDirectory]) {
+    return nil;
+  }
+  if (isDirectory) {
+    if (!allowIndexHTML) {
+      return nil;
+    }
+    candidate = [candidate stringByAppendingPathComponent:@"index.html"];
+    candidate = [candidate stringByStandardizingPath];
+    if (![candidate hasPrefix:[root stringByAppendingString:@"/"]] && ![candidate isEqualToString:[root stringByAppendingPathComponent:@"index.html"]]) {
+      return nil;
+    }
+    if (![[NSFileManager defaultManager] fileExistsAtPath:candidate isDirectory:&isDirectory] || isDirectory) {
+      return nil;
+    }
+  }
+  return candidate;
+}
+
++ (instancetype)responseWithFileUnderRoot:(NSString*)documentRoot
+                                  urlPath:(NSString*)urlPath
+                                byteRange:(NSRange)byteRange
+                           allowIndexHTML:(BOOL)allowIndexHTML
+                        mimeTypeOverrides:(NSDictionary<NSString*, NSString*>*)overrides {
+  NSString* resolved = _GCDWebServerResolvedPathUnderRoot(documentRoot, urlPath, allowIndexHTML);
+  if (!resolved) {
+    return nil;
+  }
+  GCDWebServerFileResponse* response = [[self alloc] initWithFile:resolved byteRange:byteRange isAttachment:NO mimeTypeOverrides:overrides];
+  if (response && response.statusCode != kGCDWebServerHTTPStatusCode_RequestedRangeNotSatisfiable) {
+    [response setValue:@"bytes" forAdditionalHeader:@"Accept-Ranges"];
+  }
+  return response;
+}
+
 - (BOOL)open:(NSError**)error {
   _file = open([_path fileSystemRepresentation], O_NOFOLLOW | O_RDONLY);
   if (_file <= 0) {
