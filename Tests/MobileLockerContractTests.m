@@ -1021,6 +1021,57 @@
   [server stop];
 }
 
+- (void)testMaxRequestBodyLength_contentLengthReturns413 {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"POST"
+                    exactPath:@"/echo"
+                 requestClass:[GCDWebServerDataRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   return [GCDWebServerDataResponse responseWithText:@"ok"];
+                 }];
+  NSDictionary* opts = @{
+    GCDWebServerOption_Port : @0,
+    GCDWebServerOption_BindToLocalhost : @YES,
+    GCDWebServerOption_AutomaticallySuspendInBackground : @NO,
+    GCDWebServerOption_MaxRequestBodyLength : @10
+  };
+  XCTAssertTrue([server startWithOptions:opts error:NULL]);
+  NSString* body = @"this-is-more-than-ten-bytes";
+  NSString* req = [NSString stringWithFormat:
+                                @"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n%@",
+                            (unsigned long)body.length, body];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 413);
+  [server stop];
+}
+
+- (void)testMaxRequestBodyLength_unlimitedStillAccepts {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"POST"
+                    exactPath:@"/echo"
+                 requestClass:[GCDWebServerDataRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   GCDWebServerDataRequest* dataReq = (GCDWebServerDataRequest*)request;
+                   NSString* text = [[NSString alloc] initWithData:dataReq.data encoding:NSUTF8StringEncoding];
+                   return [GCDWebServerDataResponse responseWithText:text ?: @""];
+                 }];
+  NSDictionary* opts = @{
+    GCDWebServerOption_Port : @0,
+    GCDWebServerOption_BindToLocalhost : @YES,
+    GCDWebServerOption_AutomaticallySuspendInBackground : @NO,
+    GCDWebServerOption_MaxRequestBodyLength : @0
+  };
+  XCTAssertTrue([server startWithOptions:opts error:NULL]);
+  NSString* body = @"hello-body";
+  NSString* req = [NSString stringWithFormat:
+                                @"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n%@",
+                            (unsigned long)body.length, body];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:raw] encoding:NSUTF8StringEncoding], body);
+  [server stop];
+}
+
 - (void)testKeepAlive_idleTimeoutClosesWaitingConnection {
   GCDWebServer* server = [[GCDWebServer alloc] init];
   [server addHandlerForMethod:@"GET"

@@ -274,6 +274,13 @@ extern NSString* const GCDWebServerOption_MaxKeepAliveRequests;
 extern NSString* const GCDWebServerOption_KeepAliveIdleTimeout;
 
 /**
+ *  GCD-30: Maximum request body length in bytes (NSNumber / NSUInteger).
+ *  Default is 0 (unlimited). When Content-Length exceeds the max (or a chunked
+ *  body grows past the max), the server responds with HTTP 413 and stops buffering.
+ */
+extern NSString* const GCDWebServerOption_MaxRequestBodyLength;
+
+/**
  *  HTTP Basic Authentication scheme (see https://tools.ietf.org/html/rfc2617).
  *
  *  @warning Use of this authentication scheme is not recommended as the
