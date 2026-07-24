@@ -207,6 +207,9 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
   dispatch_queue_t _lifecycleQueue;  // GCD-4: serial queue for stop / auto-suspend (never block main)
   dispatch_group_t _sourceGroup;
   NSMutableArray<GCDWebServerHandler*>* _handlers;
+  // GCD-28: O(1) exact path + ordered prefix maps (checked before LIFO matchBlocks).
+  NSMutableDictionary<NSString*, GCDWebServerHandler*>* _exactHandlers;  // key: "METHOD path" (path lowercased)
+  NSMutableArray<NSDictionary*>* _prefixHandlers;  // LIFO among prefixes: @{@"method", @"prefix", @"handler"}
   NSInteger _activeConnections;  // Accessed through _syncQueue only
   NSHashTable<GCDWebServerConnection*>* _activeConnectionSet;  // Weak; accessed through _syncQueue only (GCD-3)
   BOOL _connected;  // Accessed on main thread only
@@ -240,6 +243,17 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
 }
 
 @property(nonatomic, readonly) NSMutableArray<GCDWebServerHandler*>* handlers;
+/**
+ *  GCD-28: Resolve a handler. Precedence: exact path map → prefix map (LIFO) → legacy LIFO matchBlocks.
+ *  On success, outHandler and outRequest are set.
+ */
+- (BOOL)matchHandlerForMethod:(NSString*)method
+                          url:(NSURL*)url
+                      headers:(NSDictionary<NSString*, NSString*>*)headers
+                         path:(NSString*)path
+                        query:(NSDictionary<NSString*, NSString*>*)query
+                      handler:(GCDWebServerHandler* _Nullable* _Nonnull)outHandler
+                      request:(GCDWebServerRequest* _Nullable* _Nonnull)outRequest;
 @property(nonatomic, readonly, nullable) NSString* serverName;
 @property(nonatomic, readonly, nullable) NSString* authenticationRealm;
 @property(nonatomic, readonly, nullable) NSMutableDictionary<NSString*, NSString*>* authenticationBasicAccounts;
@@ -255,6 +269,12 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
 @interface GCDWebServerHandler : NSObject
 @property(nonatomic, readonly) GCDWebServerMatchBlock matchBlock;
 @property(nonatomic, readonly) GCDWebServerAsyncProcessBlock asyncProcessBlock;
+- (instancetype)initWithMatchBlock:(GCDWebServerMatchBlock)matchBlock asyncProcessBlock:(GCDWebServerAsyncProcessBlock)processBlock;
+@end
+
+@interface GCDWebServer (ExactPrefixRouterInternal)
+- (void)addExactHandlerForMethod:(NSString*)method path:(NSString*)path handler:(GCDWebServerHandler*)handler;
+- (void)addPrefixHandlerForMethod:(NSString*)method pathPrefix:(NSString*)prefix handler:(GCDWebServerHandler*)handler;
 @end
 
 @interface GCDWebServerRequest ()

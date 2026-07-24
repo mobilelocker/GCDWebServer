@@ -127,6 +127,62 @@
   }
 }
 
+// GCD-28
+- (void)addHandlerForMethod:(NSString*)method exactPath:(NSString*)path requestClass:(Class)aClass processBlock:(GCDWebServerProcessBlock)block {
+  [self addHandlerForMethod:method
+                  exactPath:path
+               requestClass:aClass
+          asyncProcessBlock:^(GCDWebServerRequest* request, GCDWebServerCompletionBlock completionBlock) {
+            completionBlock(block(request));
+          }];
+}
+
+- (void)addHandlerForMethod:(NSString*)method exactPath:(NSString*)path requestClass:(Class)aClass asyncProcessBlock:(GCDWebServerAsyncProcessBlock)block {
+  if ([path hasPrefix:@"/"] && [aClass isSubclassOfClass:[GCDWebServerRequest class]]) {
+    GCDWebServerMatchBlock match = ^GCDWebServerRequest*(NSString* requestMethod, NSURL* requestURL, NSDictionary<NSString*, NSString*>* requestHeaders, NSString* urlPath, NSDictionary<NSString*, NSString*>* urlQuery) {
+      if (![requestMethod isEqualToString:method]) {
+        return nil;
+      }
+      if ([urlPath caseInsensitiveCompare:path] != NSOrderedSame) {
+        return nil;
+      }
+      return [(GCDWebServerRequest*)[aClass alloc] initWithMethod:requestMethod url:requestURL headers:requestHeaders path:urlPath query:urlQuery];
+    };
+    GCDWebServerHandler* handler = [[GCDWebServerHandler alloc] initWithMatchBlock:match asyncProcessBlock:block];
+    [self addExactHandlerForMethod:method path:path handler:handler];
+  } else {
+    GWS_DNOT_REACHED();
+  }
+}
+
+- (void)addHandlerForMethod:(NSString*)method pathPrefix:(NSString*)prefix requestClass:(Class)aClass processBlock:(GCDWebServerProcessBlock)block {
+  [self addHandlerForMethod:method
+                 pathPrefix:prefix
+               requestClass:aClass
+          asyncProcessBlock:^(GCDWebServerRequest* request, GCDWebServerCompletionBlock completionBlock) {
+            completionBlock(block(request));
+          }];
+}
+
+- (void)addHandlerForMethod:(NSString*)method pathPrefix:(NSString*)prefix requestClass:(Class)aClass asyncProcessBlock:(GCDWebServerAsyncProcessBlock)block {
+  if ([prefix hasPrefix:@"/"] && [aClass isSubclassOfClass:[GCDWebServerRequest class]]) {
+    NSString* prefixCopy = [prefix copy];
+    GCDWebServerMatchBlock match = ^GCDWebServerRequest*(NSString* requestMethod, NSURL* requestURL, NSDictionary<NSString*, NSString*>* requestHeaders, NSString* urlPath, NSDictionary<NSString*, NSString*>* urlQuery) {
+      if (![requestMethod isEqualToString:method]) {
+        return nil;
+      }
+      if (![urlPath.lowercaseString hasPrefix:prefixCopy.lowercaseString]) {
+        return nil;
+      }
+      return [(GCDWebServerRequest*)[aClass alloc] initWithMethod:requestMethod url:requestURL headers:requestHeaders path:urlPath query:urlQuery];
+    };
+    GCDWebServerHandler* handler = [[GCDWebServerHandler alloc] initWithMatchBlock:match asyncProcessBlock:block];
+    [self addPrefixHandlerForMethod:method pathPrefix:prefix handler:handler];
+  } else {
+    GWS_DNOT_REACHED();
+  }
+}
+
 @end
 
 @implementation GCDWebServer (GETHandlers)

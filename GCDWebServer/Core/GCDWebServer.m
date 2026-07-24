@@ -117,6 +117,8 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
     _lifecycleQueue = dispatch_queue_create([[NSString stringWithFormat:@"%@.lifecycle", NSStringFromClass([self class])] UTF8String], DISPATCH_QUEUE_SERIAL);
     _sourceGroup = dispatch_group_create();
     _handlers = [[NSMutableArray alloc] init];
+    _exactHandlers = [[NSMutableDictionary alloc] init];
+    _prefixHandlers = [[NSMutableArray alloc] init];
     _activeConnectionSet = [NSHashTable weakObjectsHashTable];
 #if TARGET_OS_IPHONE
     _backgroundTask = UIBackgroundTaskInvalid;
@@ -301,6 +303,66 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
 - (void)removeAllHandlers {
   GWS_DCHECK(_options == nil);
   [_handlers removeAllObjects];
+  [_exactHandlers removeAllObjects];
+  [_prefixHandlers removeAllObjects];
+}
+
+// GCD-28: exact → prefix (LIFO) → legacy matchBlock list (LIFO).
+- (BOOL)matchHandlerForMethod:(NSString*)method
+                          url:(NSURL*)url
+                      headers:(NSDictionary<NSString*, NSString*>*)headers
+                         path:(NSString*)path
+                        query:(NSDictionary<NSString*, NSString*>*)query
+                      handler:(GCDWebServerHandler* _Nullable* _Nonnull)outHandler
+                      request:(GCDWebServerRequest* _Nullable* _Nonnull)outRequest {
+  NSString* exactKey = [NSString stringWithFormat:@"%@ %@", method, path.lowercaseString];
+  GCDWebServerHandler* candidate = _exactHandlers[exactKey];
+  if (candidate) {
+    GCDWebServerRequest* req = candidate.matchBlock(method, url, headers, path, query);
+    if (req) {
+      *outHandler = candidate;
+      *outRequest = req;
+      return YES;
+    }
+  }
+
+  for (NSDictionary* entry in _prefixHandlers) {
+    if (![entry[@"method"] isEqualToString:method]) {
+      continue;
+    }
+    NSString* prefix = entry[@"prefix"];
+    if ([path hasPrefix:prefix] || [path.lowercaseString hasPrefix:((NSString*)prefix).lowercaseString]) {
+      candidate = entry[@"handler"];
+      GCDWebServerRequest* req = candidate.matchBlock(method, url, headers, path, query);
+      if (req) {
+        *outHandler = candidate;
+        *outRequest = req;
+        return YES;
+      }
+    }
+  }
+
+  for (GCDWebServerHandler* handler in _handlers) {
+    GCDWebServerRequest* req = handler.matchBlock(method, url, headers, path, query);
+    if (req) {
+      *outHandler = handler;
+      *outRequest = req;
+      return YES;
+    }
+  }
+  return NO;
+}
+
+- (void)addExactHandlerForMethod:(NSString*)method path:(NSString*)path handler:(GCDWebServerHandler*)handler {
+  GWS_DCHECK(_options == nil);
+  NSString* key = [NSString stringWithFormat:@"%@ %@", method, path.lowercaseString];
+  _exactHandlers[key] = handler;
+}
+
+- (void)addPrefixHandlerForMethod:(NSString*)method pathPrefix:(NSString*)prefix handler:(GCDWebServerHandler*)handler {
+  GWS_DCHECK(_options == nil);
+  // LIFO among prefixes: newest first.
+  [_prefixHandlers insertObject:@{@"method" : method, @"prefix" : prefix, @"handler" : handler} atIndex:0];
 }
 
 #pragma clang diagnostic push

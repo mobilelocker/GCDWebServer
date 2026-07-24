@@ -1021,6 +1021,43 @@
   [server stop];
 }
 
+- (void)testRouter_exactBeatsPrefixBeatsLegacy {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  // Legacy LIFO catch-all (registered first → lowest precedence among legacy; maps beat all legacy).
+  [server addHandlerWithMatchBlock:^GCDWebServerRequest*(NSString* method, NSURL* url, NSDictionary* headers, NSString* path, NSDictionary* query) {
+    if (![method isEqualToString:@"GET"]) {
+      return nil;
+    }
+    return [[GCDWebServerRequest alloc] initWithMethod:method url:url headers:headers path:path query:query];
+  } processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+    return [GCDWebServerDataResponse responseWithText:@"legacy"];
+  }];
+  [server addHandlerForMethod:@"GET"
+                   pathPrefix:@"/api/"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   return [GCDWebServerDataResponse responseWithText:@"prefix"];
+                 }];
+  [server addHandlerForMethod:@"GET"
+                    exactPath:@"/api/ping"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   return [GCDWebServerDataResponse responseWithText:@"exact"];
+                 }];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* exact = [self ml_rawHTTPOnPort:server.port request:@"GET /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:exact] encoding:NSUTF8StringEncoding], @"exact");
+
+  NSData* prefix = [self ml_rawHTTPOnPort:server.port request:@"GET /api/other HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:prefix] encoding:NSUTF8StringEncoding], @"prefix");
+
+  NSData* legacy = [self ml_rawHTTPOnPort:server.port request:@"GET /elsewhere HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:legacy] encoding:NSUTF8StringEncoding], @"legacy");
+
+  [server stop];
+}
+
 - (void)testCachePolicy_suppressETagSkipsHeaderAnd304 {
   NSData* fileData = [@"etag-body-content" dataUsingEncoding:NSUTF8StringEncoding];
   NSString* path = [self ml_tempFileWithContents:fileData];
