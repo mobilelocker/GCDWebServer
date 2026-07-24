@@ -8,6 +8,7 @@
 #import <arpa/inet.h>
 
 #import "GCDWebServer.h"
+#import "GCDWebServerFunctions.h"
 #import "GCDWebServerDataRequest.h"
 #import "GCDWebServerDataResponse.h"
 #import "GCDWebServerFileResponse.h"
@@ -507,6 +508,126 @@
   XCTAssertTrue(probe.stopOnMain);
 }
 
+#pragma mark - GCD-18: MIME, charset, safe root helper
+
+- (void)testML_MimeTypesForWebExtensionsIncludeCharset {
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"html", nil) hasPrefix:@"text/html"]);
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"html", nil) containsString:@"charset=utf-8"]);
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"js", nil) hasPrefix:@"text/javascript"]);
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"js", nil) containsString:@"charset=utf-8"]);
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"mjs", nil) hasPrefix:@"text/javascript"]);
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"css", nil) hasPrefix:@"text/css"]);
+  XCTAssertEqualObjects(GCDWebServerGetMimeTypeForExtension(@"wasm", nil), @"application/wasm");
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"json", nil) hasPrefix:@"application/json"]);
+  XCTAssertTrue([GCDWebServerGetMimeTypeForExtension(@"svg", nil) hasPrefix:@"image/svg+xml"]);
+  XCTAssertEqualObjects(GCDWebServerGetMimeTypeForExtension(@"woff2", nil), @"font/woff2");
+  // charset not double-applied
+  NSString* withCharset = GCDWebServerEnsureUTF8CharsetIfNeeded(@"text/html; charset=utf-8");
+  XCTAssertEqualObjects(withCharset, @"text/html; charset=utf-8");
+}
+
+- (void)testML_SafeFileUnderRootServesFileAndIndex {
+  NSString* root = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+  NSString* sub = [root stringByAppendingPathComponent:@"assets"];
+  XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:sub withIntermediateDirectories:YES attributes:nil error:NULL]);
+  NSString* indexPath = [root stringByAppendingPathComponent:@"index.html"];
+  NSString* jsPath = [sub stringByAppendingPathComponent:@"app.js"];
+  XCTAssertTrue([@"<!doctype html><title>x</title>" writeToFile:indexPath atomically:YES encoding:NSUTF8StringEncoding error:NULL]);
+  XCTAssertTrue([@"console.log(1)" writeToFile:jsPath atomically:YES encoding:NSUTF8StringEncoding error:NULL]);
+
+  NSRange full = NSMakeRange(NSUIntegerMax, 0);
+  GCDWebServerFileResponse* index = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                                urlPath:@"/"
+                                                                              byteRange:full
+                                                                         allowIndexHTML:YES
+                                                                      mimeTypeOverrides:nil];
+  XCTAssertNotNil(index);
+  XCTAssertTrue([index.contentType hasPrefix:@"text/html"]);
+
+  GCDWebServerFileResponse* js = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                             urlPath:@"/assets/app.js"
+                                                                           byteRange:full
+                                                                      allowIndexHTML:YES
+                                                                   mimeTypeOverrides:nil];
+  XCTAssertNotNil(js);
+  XCTAssertTrue([js.contentType hasPrefix:@"text/javascript"]);
+
+  GCDWebServerFileResponse* dirIndex = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                                   urlPath:@"/assets/"
+                                                                                 byteRange:full
+                                                                            allowIndexHTML:YES
+                                                                         mimeTypeOverrides:nil];
+  // assets/ has no index.html → nil
+  XCTAssertNil(dirIndex);
+
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testML_SafeFileUnderRootRejectsTraversal {
+  NSString* root = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+  XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:NULL]);
+  NSString* secret = [root stringByAppendingPathComponent:@"secret.txt"];
+  XCTAssertTrue([@"secret" writeToFile:secret atomically:YES encoding:NSUTF8StringEncoding error:NULL]);
+  // Sibling outside root
+  NSString* outside = [[root stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"outside.txt"];
+  XCTAssertTrue([@"outside" writeToFile:outside atomically:YES encoding:NSUTF8StringEncoding error:NULL]);
+
+  NSRange full = NSMakeRange(NSUIntegerMax, 0);
+  GCDWebServerFileResponse* ok = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                             urlPath:@"/secret.txt"
+                                                                           byteRange:full
+                                                                      allowIndexHTML:NO
+                                                                   mimeTypeOverrides:nil];
+  XCTAssertNotNil(ok);
+
+  GCDWebServerFileResponse* denied = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                                 urlPath:@"/../outside.txt"
+                                                                               byteRange:full
+                                                                          allowIndexHTML:NO
+                                                                       mimeTypeOverrides:nil];
+  XCTAssertNil(denied);
+
+  GCDWebServerFileResponse* missing = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                                  urlPath:@"/nope.html"
+                                                                                byteRange:full
+                                                                           allowIndexHTML:YES
+                                                                        mimeTypeOverrides:nil];
+  XCTAssertNil(missing);
+
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+  [[NSFileManager defaultManager] removeItemAtPath:outside error:NULL];
+}
+
+- (void)testML_SafeFileUnderRootHTTPContentType {
+  NSString* root = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+  XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:NULL]);
+  NSString* indexPath = [root stringByAppendingPathComponent:@"index.html"];
+  XCTAssertTrue([@"<!doctype html>" writeToFile:indexPath atomically:YES encoding:NSUTF8StringEncoding error:NULL]);
+
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addDefaultHandlerForMethod:@"GET"
+                        requestClass:[GCDWebServerRequest class]
+                        processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                          return [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                             urlPath:request.path
+                                                                           byteRange:request.byteRange
+                                                                      allowIndexHTML:YES
+                                                                   mimeTypeOverrides:nil];
+                        }];
+  NSError* err = nil;
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:&err], @"%@", err);
+
+  NSString* req = @"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  NSString* contentType = [self ml_headerValue:@"Content-Type" fromRawHTTP:raw];
+  XCTAssertTrue([contentType.lowercaseString hasPrefix:@"text/html"], @"Content-Type=%@", contentType);
+  XCTAssertTrue([contentType.lowercaseString containsString:@"charset=utf-8"]);
+  NSString* acceptRanges = [self ml_headerValue:@"Accept-Ranges" fromRawHTTP:raw];
+  XCTAssertEqualObjects(acceptRanges.lowercaseString, @"bytes");
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
 @end
-
-
