@@ -121,7 +121,8 @@
 }
 
 - (instancetype)initWithJSONObject:(id)object {
-  return [self initWithJSONObject:object contentType:@"application/json"];
+  // GCD-22: Match file MIME map / presentation API responses with UTF-8 charset.
+  return [self initWithJSONObject:object contentType:@"application/json; charset=utf-8"];
 }
 
 - (instancetype)initWithJSONObject:(id)object contentType:(NSString*)type {
@@ -130,7 +131,7 @@
     GWS_DNOT_REACHED();
     return nil;
   }
-  return [self initWithData:data contentType:type];
+  return [self initWithData:data contentType:GCDWebServerEnsureUTF8CharsetIfNeeded(type)];
 }
 
 @end

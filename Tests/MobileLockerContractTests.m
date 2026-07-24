@@ -430,6 +430,34 @@
   [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
 }
 
+/// GCD-22: API JSON responses include charset=utf-8 (PresentationWebServer routes).
+- (void)testML_JSONDataResponseIncludesCharset {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/api/json"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   return [GCDWebServerDataResponse responseWithJSONObject:@{@"ok": @YES}];
+                 }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSString* req = [NSString stringWithFormat:
+                               @"GET /api/json HTTP/1.1\r\n"
+                               @"Host: localhost\r\n"
+                               @"Connection: close\r\n"
+                               @"\r\n"];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  NSString* contentType = [self ml_headerValue:@"Content-Type" fromRawHTTP:raw];
+  XCTAssertTrue([contentType.lowercaseString containsString:@"application/json"], @"%@", contentType);
+  XCTAssertTrue([contentType.lowercaseString containsString:@"charset=utf-8"], @"%@", contentType);
+
+  [server stop];
+}
+
 #pragma mark - GCD-13: Async routes, stop, double completion
 
 /// Scanner/picker/video routes complete after a Task hop with JSON.
