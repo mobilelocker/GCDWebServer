@@ -125,6 +125,9 @@ static inline NSDate* _NSDateFromTimeSpec(const struct timespec* t) {
       [self setValue:[NSString stringWithFormat:@"bytes %lu-%lu/%lu", (unsigned long)_offset, (unsigned long)(_offset + _size - 1), (unsigned long)fileSize] forAdditionalHeader:@"Content-Range"];
       GWS_LOG_DEBUG(@"Using content bytes range [%lu-%lu] for file \"%@\"", (unsigned long)_offset, (unsigned long)(_offset + _size - 1), path);
     }
+    // GCD-19: FileResponse always supports single-range byte requests; advertise it so
+    // clients (WKWebView media) can issue Range without caller remembering Accept-Ranges.
+    [self setValue:@"bytes" forAdditionalHeader:@"Accept-Ranges"];
 
     if (attachment) {
       NSString* fileName = [path lastPathComponent];
@@ -205,11 +208,8 @@ static NSString* _GCDWebServerResolvedPathUnderRoot(NSString* documentRoot, NSSt
   if (!resolved) {
     return nil;
   }
-  GCDWebServerFileResponse* response = [[self alloc] initWithFile:resolved byteRange:byteRange isAttachment:NO mimeTypeOverrides:overrides];
-  if (response && response.statusCode != kGCDWebServerHTTPStatusCode_RequestedRangeNotSatisfiable) {
-    [response setValue:@"bytes" forAdditionalHeader:@"Accept-Ranges"];
-  }
-  return response;
+  // Accept-Ranges is set in initWithFile: for 200/206 (GCD-19).
+  return [[self alloc] initWithFile:resolved byteRange:byteRange isAttachment:NO mimeTypeOverrides:overrides];
 }
 
 - (BOOL)open:(NSError**)error {
