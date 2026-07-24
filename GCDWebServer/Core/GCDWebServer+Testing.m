@@ -31,6 +31,9 @@
 
 #import "GCDWebServerPrivate.h"
 
+#import <netinet/in.h>
+#import <arpa/inet.h>
+
 // GCD-23: recording / golden-file test harness (extracted from GCDWebServer.m)
 
 #ifdef __GCDWEBSERVER_ENABLE_TESTING__

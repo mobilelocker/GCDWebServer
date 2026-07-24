@@ -562,6 +562,25 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
 
 @end
 
+/**
+ *  GCD-25: Selective gzip policy for document-root static GET handlers.
+ *  TextLike matches Mobile Locker presentation asset policy (MLI-1594).
+ */
+typedef NS_ENUM(NSInteger, GCDWebServerStaticGzipPolicy) {
+  /** Never enable gzip on the file response. */
+  GCDWebServerStaticGzipPolicyNever = 0,
+  /**
+   *  Enable gzip for text-like MIME types only: any text/* media type, plus
+   *  application/javascript, application/x-javascript, text/javascript,
+   *  application/json, application/ld+json, application/xml,
+   *  application/xhtml+xml, image/svg+xml, application/manifest+json.
+   *  Library still skips gzip on HTTP 206 / Content-Range.
+   */
+  GCDWebServerStaticGzipPolicyTextLike = 1,
+  /** Always set gzipContentEncodingEnabled (still gated by Accept-Encoding + 206 rules). */
+  GCDWebServerStaticGzipPolicyAlways = 2,
+};
+
 @interface GCDWebServer (GETHandlers)
 
 /**
@@ -586,6 +605,32 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
  *  when the request path corresponds to a directory.
  */
 - (void)addGETHandlerForBasePath:(NSString*)basePath directoryPath:(NSString*)directoryPath indexFilename:(nullable NSString*)indexFilename cacheAge:(NSUInteger)cacheAge allowRangeRequests:(BOOL)allowRangeRequests;
+
+/**
+ *  GCD-25: Serves files from a document root for embedded hosts (e.g. Mobile Locker).
+ *
+ *  Path safety uses `+[GCDWebServerFileResponse responseWithFileUnderRoot:…]` (GCD-17).
+ *  Missing files return 404 (no directory listing).
+ *
+ *  @param documentRoot Absolute filesystem directory to serve.
+ *  @param urlBasePath URL path prefix that maps to the root (use @"/" for site root).
+ *         Must start with "/". Trailing slash optional except for non-root prefixes
+ *         where a trailing "/" is recommended (e.g. @"/assets/").
+ *  @param indexFilename File name for directory-style URLs (default @"index.html" when nil).
+ *  @param entryFallbackPath Optional relative path (e.g. pack mainPath @"home.html") used only
+ *         when primary resolution fails and the request path is directory-style
+ *         (empty, "/", or ends with "/").
+ *  @param cacheAge Seconds for Cache-Control max-age; 0 emits no-cache (see Connection).
+ *  @param gzipPolicy Selective gzip policy (TextLike is the Mobile Locker default).
+ *
+ *  @warning Register more-specific API handlers *after* this catch-all so LIFO match prefers them.
+ */
+- (void)addGETHandlerForDocumentRoot:(NSString*)documentRoot
+                         urlBasePath:(NSString*)urlBasePath
+                       indexFilename:(nullable NSString*)indexFilename
+                   entryFallbackPath:(nullable NSString*)entryFallbackPath
+                            cacheAge:(NSUInteger)cacheAge
+                          gzipPolicy:(GCDWebServerStaticGzipPolicy)gzipPolicy;
 
 @end
 

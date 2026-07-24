@@ -77,6 +77,7 @@ Also:
 - GCD-8: Expanded tests + Bitbucket Pipelines scaffold
 - GCD-10: Bitbucket SPM is the distribution channel; CocoaPods unsupported
 - GCD-11: Bonjour still CFNetService (deprecated); leave disabled for embedded servers
+- GCD-25: `addGETHandlerForDocumentRoot:…` + `GCDWebServerStaticGzipPolicy` for safe static hosting (entry fallback, selective gzip, no directory listing)
 
 ### 3.5.8
 - Revert Bonjour to CFNetService (NSNetService not visible with iOS 18 deployment target)

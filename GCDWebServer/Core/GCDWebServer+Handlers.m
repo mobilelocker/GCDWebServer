@@ -234,4 +234,163 @@
   }
 }
 
+// GCD-25: directory-style URL for index / entry fallback (matches PresentationWebServer).
+static BOOL _GCDWebServerIsDirectoryStylePath(NSString* path) {
+  return path.length == 0 || [path isEqualToString:@"/"] || [path hasSuffix:@"/"];
+}
+
+// GCD-25: MIME allowlist from Mobile Locker shouldGzip (MLI-1594).
+static BOOL _GCDWebServerIsTextLikeMIMEType(NSString* contentType) {
+  if (contentType.length == 0) {
+    return NO;
+  }
+  NSString* mediaType = contentType;
+  NSRange semi = [contentType rangeOfString:@";"];
+  if (semi.location != NSNotFound) {
+    mediaType = [contentType substringToIndex:semi.location];
+  }
+  mediaType = [[mediaType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+  if ([mediaType hasPrefix:@"text/"]) {
+    return YES;
+  }
+  static NSSet<NSString*>* allow = nil;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    allow = [NSSet setWithObjects:@"application/javascript", @"application/x-javascript", @"text/javascript", @"application/json", @"application/ld+json", @"application/xml", @"application/xhtml+xml", @"image/svg+xml", @"application/manifest+json", nil];
+  });
+  return [allow containsObject:mediaType];
+}
+
+static void _GCDWebServerApplyStaticGzipPolicy(GCDWebServerResponse* response, GCDWebServerStaticGzipPolicy gzipPolicy) {
+  switch (gzipPolicy) {
+    case GCDWebServerStaticGzipPolicyNever:
+      response.gzipContentEncodingEnabled = NO;
+      break;
+    case GCDWebServerStaticGzipPolicyAlways:
+      response.gzipContentEncodingEnabled = YES;
+      break;
+    case GCDWebServerStaticGzipPolicyTextLike:
+    default:
+      response.gzipContentEncodingEnabled = _GCDWebServerIsTextLikeMIMEType(response.contentType);
+      break;
+  }
+}
+
+// Map request path under urlBasePath to a document-root relative URL path starting with "/".
+static NSString* _GCDWebServerRelativeURLPathForDocumentRoot(NSString* requestPath, NSString* urlBasePath) {
+  if ([urlBasePath isEqualToString:@"/"]) {
+    return requestPath.length ? requestPath : @"/";
+  }
+  NSString* base = urlBasePath;
+  if (![base hasSuffix:@"/"]) {
+    base = [base stringByAppendingString:@"/"];
+  }
+  if ([requestPath isEqualToString:[base substringToIndex:base.length - 1]] || [requestPath isEqualToString:base]) {
+    return @"/";
+  }
+  if (![requestPath hasPrefix:base] && ![requestPath hasPrefix:[base substringToIndex:base.length - 1]]) {
+    return nil;
+  }
+  NSString* suffix;
+  if ([requestPath hasPrefix:base]) {
+    suffix = [requestPath substringFromIndex:base.length];
+  } else {
+    // requestPath equals base without trailing slash handled above
+    suffix = [requestPath substringFromIndex:MIN(requestPath.length, base.length - 1)];
+    if ([suffix hasPrefix:@"/"]) {
+      suffix = [suffix substringFromIndex:1];
+    }
+  }
+  if (suffix.length == 0) {
+    return @"/";
+  }
+  return [suffix hasPrefix:@"/"] ? suffix : [@"/" stringByAppendingString:suffix];
+}
+
+- (void)addGETHandlerForDocumentRoot:(NSString*)documentRoot
+                         urlBasePath:(NSString*)urlBasePath
+                       indexFilename:(NSString*)indexFilename
+                   entryFallbackPath:(NSString*)entryFallbackPath
+                            cacheAge:(NSUInteger)cacheAge
+                          gzipPolicy:(GCDWebServerStaticGzipPolicy)gzipPolicy {
+  if (documentRoot.length == 0 || ![urlBasePath hasPrefix:@"/"]) {
+    GWS_DNOT_REACHED();
+    return;
+  }
+  NSString* root = [documentRoot copy];
+  NSString* basePath = [urlBasePath copy];
+  NSString* indexName = indexFilename.length ? indexFilename : @"index.html";
+  NSString* entryPath = [entryFallbackPath copy];
+  BOOL useBuiltInIndex = [indexName isEqualToString:@"index.html"];
+
+  [self
+      addHandlerWithMatchBlock:^GCDWebServerRequest*(NSString* requestMethod, NSURL* requestURL, NSDictionary<NSString*, NSString*>* requestHeaders, NSString* urlPath, NSDictionary<NSString*, NSString*>* urlQuery) {
+        if (![requestMethod isEqualToString:@"GET"]) {
+          return nil;
+        }
+        if ([basePath isEqualToString:@"/"]) {
+          // Catch-all for site root (LIFO: register before more-specific handlers).
+        } else {
+          NSString* baseNoSlash = [basePath hasSuffix:@"/"] ? [basePath substringToIndex:basePath.length - 1] : basePath;
+          if (![urlPath isEqualToString:baseNoSlash] && ![urlPath hasPrefix:[baseNoSlash stringByAppendingString:@"/"]]) {
+            return nil;
+          }
+        }
+        return [[GCDWebServerRequest alloc] initWithMethod:requestMethod url:requestURL headers:requestHeaders path:urlPath query:urlQuery];
+      }
+      processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+        NSString* relativeURLPath = _GCDWebServerRelativeURLPathForDocumentRoot(request.path, basePath);
+        if (!relativeURLPath) {
+          return [GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_NotFound];
+        }
+
+        GCDWebServerFileResponse* fileResponse = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                                             urlPath:relativeURLPath
+                                                                                           byteRange:request.byteRange
+                                                                                      allowIndexHTML:useBuiltInIndex
+                                                                                   mimeTypeOverrides:nil];
+
+        // Custom index file when not the built-in index.html name.
+        if (!fileResponse && !useBuiltInIndex && _GCDWebServerIsDirectoryStylePath(relativeURLPath)) {
+          NSString* dirPrefix = relativeURLPath;
+          if ([dirPrefix hasSuffix:@"/"]) {
+            dirPrefix = [dirPrefix substringToIndex:dirPrefix.length - 1];
+          }
+          if ([dirPrefix isEqualToString:@"/"]) {
+            dirPrefix = @"";
+          }
+          NSString* indexRel = dirPrefix.length ? [dirPrefix stringByAppendingPathComponent:indexName] : [@"/" stringByAppendingString:indexName];
+          if (![indexRel hasPrefix:@"/"]) {
+            indexRel = [@"/" stringByAppendingString:indexRel];
+          }
+          fileResponse = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                     urlPath:indexRel
+                                                                   byteRange:request.byteRange
+                                                              allowIndexHTML:NO
+                                                           mimeTypeOverrides:nil];
+        }
+
+        // Entry fallback (e.g. pack mainPath) for directory-style URLs only.
+        if (!fileResponse && entryPath.length && _GCDWebServerIsDirectoryStylePath(relativeURLPath)) {
+          NSString* entryRel = entryPath;
+          if (![entryRel hasPrefix:@"/"]) {
+            entryRel = [@"/" stringByAppendingString:entryRel];
+          }
+          fileResponse = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                     urlPath:entryRel
+                                                                   byteRange:request.byteRange
+                                                              allowIndexHTML:NO
+                                                           mimeTypeOverrides:nil];
+        }
+
+        if (!fileResponse) {
+          return [GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_NotFound];
+        }
+
+        fileResponse.cacheControlMaxAge = cacheAge;
+        _GCDWebServerApplyStaticGzipPolicy(fileResponse, gzipPolicy);
+        return fileResponse;
+      }];
+}
+
 @end

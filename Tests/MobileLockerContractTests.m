@@ -799,4 +799,139 @@
   [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
 }
 
+#pragma mark - GCD-25: Document-root static handler
+
+- (NSString*)ml_tempDocumentRootWithFiles:(NSDictionary<NSString*, NSData*>*)files {
+  NSString* root = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+  XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:NULL]);
+  [files enumerateKeysAndObjectsUsingBlock:^(NSString* rel, NSData* data, BOOL* stop) {
+    NSString* full = [root stringByAppendingPathComponent:rel];
+    NSString* dir = [full stringByDeletingLastPathComponent];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
+    XCTAssertTrue([data writeToFile:full atomically:YES]);
+  }];
+  return root;
+}
+
+- (void)testDocumentRoot_servesFileAndAcceptRanges {
+  NSString* body = @"hello-static-asset";
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"app.js" : [body dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForDocumentRoot:root
+                           urlBasePath:@"/"
+                         indexFilename:nil
+                     entryFallbackPath:nil
+                              cacheAge:0
+                            gzipPolicy:GCDWebServerStaticGzipPolicyNever];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSString* req = [NSString stringWithFormat:@"GET /app.js HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([self ml_headerValue:@"Accept-Ranges" fromRawHTTP:raw], @"bytes");
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:raw] encoding:NSUTF8StringEncoding], body);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testDocumentRoot_indexHtmlForSlash {
+  NSString* body = @"<!doctype html><title>idx</title>";
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"index.html" : [body dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForDocumentRoot:root urlBasePath:@"/" indexFilename:nil entryFallbackPath:nil cacheAge:0 gzipPolicy:GCDWebServerStaticGzipPolicyNever];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:raw] encoding:NSUTF8StringEncoding], body);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testDocumentRoot_entryFallbackWhenNoIndex {
+  NSString* body = @"<!doctype html><title>home</title>";
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"home.html" : [body dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForDocumentRoot:root urlBasePath:@"/" indexFilename:@"index.html" entryFallbackPath:@"home.html" cacheAge:0 gzipPolicy:GCDWebServerStaticGzipPolicyNever];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:raw] encoding:NSUTF8StringEncoding], body);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testDocumentRoot_rejectsTraversal {
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"ok.txt" : [@"safe" dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForDocumentRoot:root urlBasePath:@"/" indexFilename:nil entryFallbackPath:nil cacheAge:0 gzipPolicy:GCDWebServerStaticGzipPolicyNever];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET /../etc/passwd HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 404);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testDocumentRoot_gzipTextLike_notMedia {
+  // Long enough for gzip path to be meaningful.
+  NSMutableString* css = [NSMutableString string];
+  for (NSInteger i = 0; i < 80; i++) {
+    [css appendString:@"body { color: #333; margin: 0; padding: 0; /* pad */ }\n"];
+  }
+  NSData* pngHeader = [NSData dataWithBytes:"\x89PNG\r\n\x1a\n\0\0\0\rIHDR" length:16];
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{
+    @"style.css" : [css dataUsingEncoding:NSUTF8StringEncoding],
+    @"pixel.png" : pngHeader
+  }];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForDocumentRoot:root urlBasePath:@"/" indexFilename:nil entryFallbackPath:nil cacheAge:0 gzipPolicy:GCDWebServerStaticGzipPolicyTextLike];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* cssRaw = [self ml_rawHTTPOnPort:server.port
+                                  request:@"GET /style.css HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:cssRaw], 200);
+  XCTAssertEqualObjects([self ml_headerValue:@"Content-Encoding" fromRawHTTP:cssRaw], @"gzip");
+
+  NSData* pngRaw = [self ml_rawHTTPOnPort:server.port
+                                  request:@"GET /pixel.png HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:pngRaw], 200);
+  XCTAssertNil([self ml_headerValue:@"Content-Encoding" fromRawHTTP:pngRaw]);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testDocumentRoot_cacheControlNoCacheWhenAgeZero {
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"a.txt" : [@"x" dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForDocumentRoot:root urlBasePath:@"/" indexFilename:nil entryFallbackPath:nil cacheAge:0 gzipPolicy:GCDWebServerStaticGzipPolicyNever];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET /a.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([self ml_headerValue:@"Cache-Control" fromRawHTTP:raw], @"no-cache");
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testDocumentRoot_404Missing {
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"a.txt" : [@"x" dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForDocumentRoot:root urlBasePath:@"/" indexFilename:nil entryFallbackPath:nil cacheAge:0 gzipPolicy:GCDWebServerStaticGzipPolicyNever];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET /missing.js HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 404);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
 @end
