@@ -93,6 +93,9 @@ NS_ASSUME_NONNULL_END
   // GCD-7 keep-alive
   BOOL _keepAliveForResponse;
   NSUInteger _requestsServedOnConnection;
+  // GCD-29: idle timer while waiting for next request headers
+  dispatch_source_t _keepAliveIdleTimer;
+  BOOL _waitingForNextKeepAliveRequest;
 #ifdef __GCDWEBSERVER_ENABLE_TESTING__
   NSUInteger _connectionIndex;
   NSString* _requestPath;
@@ -142,8 +145,63 @@ NS_ASSUME_NONNULL_END
   CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Date"), (__bridge CFStringRef)GCDWebServerFormatRFC822([NSDate date]));
 }
 
+// GCD-29
+- (void)_cancelKeepAliveIdleTimer {
+  if (_keepAliveIdleTimer) {
+    dispatch_source_cancel(_keepAliveIdleTimer);
+#if !OS_OBJECT_USE_OBJC
+    dispatch_release(_keepAliveIdleTimer);
+#endif
+    _keepAliveIdleTimer = NULL;
+  }
+  _waitingForNextKeepAliveRequest = NO;
+}
+
+- (void)_armKeepAliveIdleTimer {
+  [self _cancelKeepAliveIdleTimer];
+  NSTimeInterval timeout = _server.keepAliveIdleTimeout;
+  if (timeout <= 0) {
+    return;
+  }
+  _waitingForNextKeepAliveRequest = YES;
+  dispatch_queue_t queue = dispatch_get_global_queue(_server.dispatchQueuePriority, 0);
+  _keepAliveIdleTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+  if (!_keepAliveIdleTimer) {
+    return;
+  }
+  __weak typeof(self) weakSelf = self;
+  dispatch_source_set_event_handler(_keepAliveIdleTimer, ^{
+    @autoreleasepool {
+      __strong typeof(weakSelf) strongSelf = weakSelf;
+      if (!strongSelf) {
+        return;
+      }
+      if (!strongSelf->_waitingForNextKeepAliveRequest) {
+        return;
+      }
+      GWS_LOG_DEBUG(@"Keep-alive idle timeout on socket %i", strongSelf->_socket);
+      strongSelf->_waitingForNextKeepAliveRequest = NO;
+      // Shutdown unblocks dispatch_read; socket is closed in -dealloc.
+      if (strongSelf->_socket >= 0) {
+        shutdown(strongSelf->_socket, SHUT_RDWR);
+      }
+      if (strongSelf->_keepAliveIdleTimer) {
+        dispatch_source_cancel(strongSelf->_keepAliveIdleTimer);
+#if !OS_OBJECT_USE_OBJC
+        dispatch_release(strongSelf->_keepAliveIdleTimer);
+#endif
+        strongSelf->_keepAliveIdleTimer = NULL;
+      }
+    }
+  });
+  uint64_t ns = (uint64_t)(timeout * NSEC_PER_SEC);
+  dispatch_source_set_timer(_keepAliveIdleTimer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)ns), DISPATCH_TIME_FOREVER, (uint64_t)(0.1 * NSEC_PER_SEC));
+  dispatch_resume(_keepAliveIdleTimer);
+}
+
 // GCD-7: Clear per-request state so the same socket can read the next request.
 - (void)_resetForNextRequest {
+  [self _cancelKeepAliveIdleTimer];
   if (_requestMessage) {
     CFRelease(_requestMessage);
     _requestMessage = NULL;
@@ -258,11 +316,13 @@ NS_ASSUME_NONNULL_END
             [self->_response performClose];  // TODO: There's nothing we can do on failure as headers have already been sent
             if (successInner && keepAlive && !self->_abortedForStop) {
               [self _resetForNextRequest];
+              [self _armKeepAliveIdleTimer];
               [self _readRequestHeaders];
             }
           }];
         } else if (keepAlive && !self->_abortedForStop) {
           [self _resetForNextRequest];
+          [self _armKeepAliveIdleTimer];
           [self _readRequestHeaders];
         }
       } else if (hasBody) {
@@ -341,6 +401,8 @@ NS_ASSUME_NONNULL_END
   NSMutableData* headersData = [[NSMutableData alloc] initWithCapacity:kHeadersReadCapacity];
   [self readHeaders:headersData
       withCompletionBlock:^(NSData* extraData) {
+        // GCD-29: first byte / completion of idle wait cancels idle timer.
+        [self _cancelKeepAliveIdleTimer];
         if (extraData) {
           NSString* requestMethod = CFBridgingRelease(CFHTTPMessageCopyRequestMethod(self->_requestMessage));  // Method verbs are case-sensitive and uppercase
           if (self->_server.shouldAutomaticallyMapHEADToGET && [requestMethod isEqualToString:@"HEAD"]) {
@@ -470,6 +532,7 @@ NS_ASSUME_NONNULL_END
     }
   }
   GWS_LOG_DEBUG(@"Aborting connection on socket %i for server stop", _socket);
+  [self _cancelKeepAliveIdleTimer];
   // Force-complete async handlers so they cannot hang after stop (MLI-1575 / GCD-3).
   if (pending) {
     pending([GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_ServiceUnavailable]);
@@ -481,11 +544,14 @@ NS_ASSUME_NONNULL_END
 }
 
 - (void)dealloc {
-  int result = close(_socket);
-  if (result != 0) {
-    GWS_LOG_ERROR(@"Failed closing socket %i for connection: %s (%i)", _socket, strerror(errno), errno);
-  } else {
-    GWS_LOG_DEBUG(@"Did close connection on socket %i", _socket);
+  [self _cancelKeepAliveIdleTimer];
+  if (_socket >= 0) {
+    int result = close(_socket);
+    if (result != 0) {
+      GWS_LOG_ERROR(@"Failed closing socket %i for connection: %s (%i)", _socket, strerror(errno), errno);
+    } else {
+      GWS_LOG_DEBUG(@"Did close connection on socket %i", _socket);
+    }
   }
 
   if (_opened) {

@@ -266,6 +266,14 @@ extern NSString* const GCDWebServerOption_EnableKeepAlive;
 extern NSString* const GCDWebServerOption_MaxKeepAliveRequests;
 
 /**
+ *  GCD-29: Idle timeout in seconds while waiting for the *next* request on a
+ *  keep-alive connection (NSNumber / NSTimeInterval). Default is 0 (disabled).
+ *  Does not apply during request body reads or long-held async process blocks.
+ *  When the timeout fires the socket is closed cleanly.
+ */
+extern NSString* const GCDWebServerOption_KeepAliveIdleTimeout;
+
+/**
  *  HTTP Basic Authentication scheme (see https://tools.ietf.org/html/rfc2617).
  *
  *  @warning Use of this authentication scheme is not recommended as the
