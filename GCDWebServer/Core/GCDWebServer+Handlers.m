@@ -159,6 +159,9 @@
                }];
 }
 
+// Forward decls for static helpers defined below (GCD-25/26).
+static BOOL _GCDWebServerIsDirectoryStylePath(NSString* path);
+
 - (GCDWebServerResponse*)_responseWithContentsOfDirectory:(NSString*)path {
   NSArray* contents = [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:NULL] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
   if (contents == nil) {
@@ -189,6 +192,7 @@
 - (void)addGETHandlerForBasePath:(NSString*)basePath directoryPath:(NSString*)directoryPath indexFilename:(NSString*)indexFilename cacheAge:(NSUInteger)cacheAge allowRangeRequests:(BOOL)allowRangeRequests {
   if ([basePath hasPrefix:@"/"] && [basePath hasSuffix:@"/"]) {
     GCDWebServer* __unsafe_unretained server = self;
+    NSString* root = [directoryPath copy];
     [self
         addHandlerWithMatchBlock:^GCDWebServerRequest*(NSString* requestMethod, NSURL* requestURL, NSDictionary<NSString*, NSString*>* requestHeaders, NSString* urlPath, NSDictionary<NSString*, NSString*>* urlQuery) {
           if (![requestMethod isEqualToString:@"GET"]) {
@@ -200,34 +204,63 @@
           return [[GCDWebServerRequest alloc] initWithMethod:requestMethod url:requestURL headers:requestHeaders path:urlPath query:urlQuery];
         }
         processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
-          GCDWebServerResponse* response = nil;
-          NSString* filePath = [directoryPath stringByAppendingPathComponent:GCDWebServerNormalizePath([request.path substringFromIndex:basePath.length])];
-          NSString* fileType = [[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:NULL] fileType];
-          if (fileType) {
-            if ([fileType isEqualToString:NSFileTypeDirectory]) {
-              if (indexFilename) {
-                NSString* indexPath = [filePath stringByAppendingPathComponent:indexFilename];
-                NSString* indexType = [[[NSFileManager defaultManager] attributesOfItemAtPath:indexPath error:NULL] fileType];
-                if ([indexType isEqualToString:NSFileTypeRegular]) {
-                  return [GCDWebServerFileResponse responseWithFile:indexPath];
-                }
-              }
-              response = [server _responseWithContentsOfDirectory:filePath];
-            } else if ([fileType isEqualToString:NSFileTypeRegular]) {
-              if (allowRangeRequests) {
-                response = [GCDWebServerFileResponse responseWithFile:filePath byteRange:request.byteRange];
-                [response setValue:@"bytes" forAdditionalHeader:@"Accept-Ranges"];
-              } else {
-                response = [GCDWebServerFileResponse responseWithFile:filePath];
+          // GCD-26: resolve via responseWithFileUnderRoot (GCD-17) instead of substring + append.
+          NSString* suffix = GCDWebServerNormalizePath([request.path substringFromIndex:basePath.length]);
+          NSString* relativeURLPath = suffix.length ? [@"/" stringByAppendingString:suffix] : @"/";
+          NSRange byteRange = allowRangeRequests ? request.byteRange : NSMakeRange(NSUIntegerMax, 0);
+
+          BOOL indexIsBuiltin = (indexFilename.length == 0) || [indexFilename isEqualToString:@"index.html"];
+          // When indexFilename is nil, do not auto-serve index.html (legacy: only listing).
+          BOOL allowIndexHTML = (indexFilename.length > 0) && indexIsBuiltin;
+
+          GCDWebServerFileResponse* fileResponse = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                                               urlPath:relativeURLPath
+                                                                                             byteRange:byteRange
+                                                                                        allowIndexHTML:allowIndexHTML
+                                                                                     mimeTypeOverrides:nil];
+
+          if (!fileResponse && indexFilename.length && !indexIsBuiltin && _GCDWebServerIsDirectoryStylePath(relativeURLPath)) {
+            NSString* dirPrefix = relativeURLPath;
+            if ([dirPrefix hasSuffix:@"/"]) {
+              dirPrefix = [dirPrefix substringToIndex:dirPrefix.length - 1];
+            }
+            if ([dirPrefix isEqualToString:@"/"]) {
+              dirPrefix = @"";
+            }
+            NSString* indexRel = dirPrefix.length ? [dirPrefix stringByAppendingPathComponent:indexFilename] : [@"/" stringByAppendingString:indexFilename];
+            if (![indexRel hasPrefix:@"/"]) {
+              indexRel = [@"/" stringByAppendingString:indexRel];
+            }
+            fileResponse = [GCDWebServerFileResponse responseWithFileUnderRoot:root
+                                                                       urlPath:indexRel
+                                                                     byteRange:byteRange
+                                                                allowIndexHTML:NO
+                                                             mimeTypeOverrides:nil];
+          }
+
+          if (fileResponse) {
+            // Accept-Ranges already set by FileResponse when ranges apply (GCD-19).
+            fileResponse.cacheControlMaxAge = cacheAge;
+            return fileResponse;
+          }
+
+          // Legacy directory listing when path is a directory under root and no index file.
+          NSString* standardizedRoot = [[root stringByStandardizingPath] stringByResolvingSymlinksInPath];
+          NSString* candidateRelative = suffix;
+          NSString* candidate = candidateRelative.length ? [standardizedRoot stringByAppendingPathComponent:candidateRelative] : standardizedRoot;
+          candidate = [[candidate stringByStandardizingPath] stringByResolvingSymlinksInPath];
+          if ([candidate isEqualToString:standardizedRoot] || [candidate hasPrefix:[standardizedRoot stringByAppendingString:@"/"]]) {
+            BOOL isDirectory = NO;
+            if ([[NSFileManager defaultManager] fileExistsAtPath:candidate isDirectory:&isDirectory] && isDirectory) {
+              GCDWebServerResponse* listing = [server _responseWithContentsOfDirectory:candidate];
+              if (listing) {
+                listing.cacheControlMaxAge = cacheAge;
+                return listing;
               }
             }
           }
-          if (response) {
-            response.cacheControlMaxAge = cacheAge;
-          } else {
-            response = [GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_NotFound];
-          }
-          return response;
+
+          return [GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_NotFound];
         }];
   } else {
     GWS_DNOT_REACHED();

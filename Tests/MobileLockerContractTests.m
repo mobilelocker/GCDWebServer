@@ -934,4 +934,55 @@
   [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
 }
 
+#pragma mark - GCD-26: Base-path safe file-under-root
+
+- (void)testBasePath_rejectsTraversalOutsideDirectory {
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"ok.txt" : [@"safe" dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForBasePath:@"/files/" directoryPath:root indexFilename:nil cacheAge:0 allowRangeRequests:YES];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET /files/../ok.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  // After normalize, ../ may collapse; also try absolute escape style
+  NSData* raw2 = [self ml_rawHTTPOnPort:server.port request:@"GET /files/%2e%2e/%2e%2e/etc/passwd HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw2], 404);
+
+  NSData* ok = [self ml_rawHTTPOnPort:server.port request:@"GET /files/ok.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:ok], 200);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+  (void)raw;
+}
+
+- (void)testBasePath_servesIndexFilename {
+  NSString* body = @"index-body";
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"index.html" : [body dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForBasePath:@"/" directoryPath:root indexFilename:@"index.html" cacheAge:0 allowRangeRequests:YES];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:raw] encoding:NSUTF8StringEncoding], body);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
+- (void)testBasePath_directoryListingWhenNoIndex {
+  NSString* root = [self ml_tempDocumentRootWithFiles:@{@"a.txt" : [@"a" dataUsingEncoding:NSUTF8StringEncoding]}];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addGETHandlerForBasePath:@"/" directoryPath:root indexFilename:nil cacheAge:0 allowRangeRequests:YES];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  NSString* html = [[NSString alloc] initWithData:[self ml_bodyFromRawHTTP:raw] encoding:NSUTF8StringEncoding];
+  XCTAssertTrue([html containsString:@"a.txt"]);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
+}
+
 @end
