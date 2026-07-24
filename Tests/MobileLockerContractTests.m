@@ -985,4 +985,68 @@
   [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
 }
 
+#pragma mark - GCD-27: Cache policy + suppressETag
+
+- (void)testCachePolicy_noStoreHeader {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/x"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   GCDWebServerDataResponse* r = [GCDWebServerDataResponse responseWithText:@"hi"];
+                   r.cachePolicy = GCDWebServerCachePolicyNoStore;
+                   return r;
+                 }];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([self ml_headerValue:@"Cache-Control" fromRawHTTP:raw], @"no-store");
+  [server stop];
+}
+
+- (void)testCachePolicy_maxAgeHeader {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/x"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   GCDWebServerDataResponse* r = [GCDWebServerDataResponse responseWithText:@"hi"];
+                   r.cachePolicy = GCDWebServerCachePolicyMaxAge;
+                   r.cacheControlMaxAge = 3600;
+                   return r;
+                 }];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:@"GET /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqualObjects([self ml_headerValue:@"Cache-Control" fromRawHTTP:raw], @"max-age=3600, public");
+  [server stop];
+}
+
+- (void)testCachePolicy_suppressETagSkipsHeaderAnd304 {
+  NSData* fileData = [@"etag-body-content" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString* path = [self ml_tempFileWithContents:fileData];
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/asset"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   GCDWebServerFileResponse* response = [GCDWebServerFileResponse responseWithFile:path];
+                   response.suppressETag = YES;
+                   response.lastModifiedDate = nil;  // isolate ETag path from Last-Modified 304
+                   return response;
+                 }];
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:NULL]);
+
+  NSData* first = [self ml_rawHTTPOnPort:server.port request:@"GET /asset HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:first], 200);
+  XCTAssertNil([self ml_headerValue:@"ETag" fromRawHTTP:first]);
+
+  // Even with a fabricated If-None-Match, suppressETag must not 304 on ETag.
+  NSData* second = [self ml_rawHTTPOnPort:server.port
+                                  request:@"GET /asset HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: \"anything\"\r\nConnection: close\r\n\r\n"];
+  XCTAssertEqual([self ml_statusFromRawHTTP:second], 200);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+}
+
 @end
