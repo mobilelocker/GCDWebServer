@@ -37,11 +37,21 @@ extern "C" {
  *  Converts a file extension to the corresponding MIME type.
  *  If there is no match, "application/octet-stream" is returned.
  *
+ *  Built-in map covers common web presentation types (html, js, mjs, css, wasm,
+ *  json, svg, fonts, webp/avif, …). UTType is used as a fallback.
+ *  Text-like types get "; charset=utf-8" appended when no charset is present.
+ *
  *  Overrides allow to customize the built-in mapping from extensions to MIME
  *  types. Keys of the dictionary must be lowercased file extensions without
  *  the period, and the values must be the corresponding MIME types.
  */
 NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension, NSDictionary<NSString*, NSString*>* _Nullable overrides);
+
+/**
+ *  Appends "; charset=utf-8" for text-like MIME types that lack a charset.
+ *  Returns the input unchanged otherwise.
+ */
+NSString* GCDWebServerEnsureUTF8CharsetIfNeeded(NSString* mimeType);
 
 /**
  *  Add percent-escapes to a string so it can be used in a URL.

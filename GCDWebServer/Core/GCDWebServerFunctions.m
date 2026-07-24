@@ -168,14 +168,80 @@ NSString* GCDWebServerDescribeData(NSData* data, NSString* type) {
   return [NSString stringWithFormat:@"<%lu bytes>", (unsigned long)data.length];
 }
 
+// GCD-16: Prefer explicit web presentation types over UTType (incomplete for mjs/wasm/fonts).
+static NSDictionary<NSString*, NSString*>* _GCDWebServerBuiltInMimeOverrides(void) {
+  static NSDictionary<NSString*, NSString*>* map;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    map = @{
+      @"html" : @"text/html",
+      @"htm" : @"text/html",
+      @"css" : @"text/css",
+      @"js" : @"text/javascript",
+      @"mjs" : @"text/javascript",
+      @"json" : @"application/json",
+      @"map" : @"application/json",
+      @"wasm" : @"application/wasm",
+      @"svg" : @"image/svg+xml",
+      @"xml" : @"application/xml",
+      @"txt" : @"text/plain",
+      @"woff" : @"font/woff",
+      @"woff2" : @"font/woff2",
+      @"ttf" : @"font/ttf",
+      @"otf" : @"font/otf",
+      @"eot" : @"application/vnd.ms-fontobject",
+      @"webp" : @"image/webp",
+      @"avif" : @"image/avif",
+      @"ico" : @"image/x-icon",
+      @"mp4" : @"video/mp4",
+      @"webm" : @"video/webm",
+      @"mp3" : @"audio/mpeg",
+      @"m4a" : @"audio/mp4",
+      @"pdf" : @"application/pdf"
+    };
+  });
+  return map;
+}
+
+// GCD-16: Append charset=utf-8 for text-like MIME types used by HTML presentations.
+NSString* GCDWebServerEnsureUTF8CharsetIfNeeded(NSString* mimeType) {
+  if (mimeType.length == 0) {
+    return mimeType;
+  }
+  NSString* lower = mimeType.lowercaseString;
+  if ([lower containsString:@"charset="]) {
+    return mimeType;
+  }
+  static NSArray<NSString*>* prefixes;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    prefixes = @[
+      @"text/html",
+      @"text/css",
+      @"text/javascript",
+      @"application/javascript",
+      @"text/plain",
+      @"application/json",
+      @"image/svg+xml",
+      @"application/xml",
+      @"text/xml"
+    ];
+  });
+  for (NSString* prefix in prefixes) {
+    if ([lower isEqualToString:prefix] || [lower hasPrefix:[prefix stringByAppendingString:@";"]]) {
+      return [mimeType stringByAppendingString:@"; charset=utf-8"];
+    }
+  }
+  return mimeType;
+}
+
 NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension, NSDictionary<NSString*, NSString*>* overrides) {
-  NSDictionary* builtInOverrides = @{@"css" : @"text/css"};
   NSString* mimeType = nil;
   extension = [extension lowercaseString];
   if (extension.length) {
     mimeType = [overrides objectForKey:extension];
     if (mimeType == nil) {
-      mimeType = [builtInOverrides objectForKey:extension];
+      mimeType = [_GCDWebServerBuiltInMimeOverrides() objectForKey:extension];
     }
     if (mimeType == nil) {
 #if TARGET_OS_IPHONE
@@ -190,7 +256,8 @@ NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension, NSDictionary<
 #endif
     }
   }
-  return mimeType ? mimeType : kGCDWebServerDefaultMimeType;
+  mimeType = mimeType ? mimeType : kGCDWebServerDefaultMimeType;
+  return GCDWebServerEnsureUTF8CharsetIfNeeded(mimeType);
 }
 
 NSString* GCDWebServerEscapeURLString(NSString* string) {
