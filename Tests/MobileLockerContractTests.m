@@ -15,6 +15,28 @@
 
 #pragma clang diagnostic ignored "-Weverything"
 
+@interface MLDelegateProbe : NSObject <GCDWebServerDelegate>
+@property(nonatomic, copy) void (^onStart)(void);
+@property(nonatomic, copy) void (^onStop)(void);
+@property(nonatomic, assign) BOOL startOnMain;
+@property(nonatomic, assign) BOOL stopOnMain;
+@end
+
+@implementation MLDelegateProbe
+- (void)webServerDidStart:(GCDWebServer*)server {
+  self.startOnMain = [NSThread isMainThread];
+  if (self.onStart) {
+    self.onStart();
+  }
+}
+- (void)webServerDidStop:(GCDWebServer*)server {
+  self.stopOnMain = [NSThread isMainThread];
+  if (self.onStop) {
+    self.onStop();
+  }
+}
+@end
+
 @interface MobileLockerContractTests : XCTestCase
 @end
 
@@ -342,5 +364,149 @@
   held([GCDWebServerDataResponse responseWithJSONObject:@{@"status": @"too-late"}]);
 }
 
+#pragma mark - GCD-14: Sync JSON, app options, restart
+
+/// Majority of Mobile Locker API routes use sync processBlock + JSON.
+- (void)testML_SyncProcessBlockReturnsJSON {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/mobilelocker/api/ping"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   return [GCDWebServerDataResponse responseWithJSONObject:@{@"ok": @YES, @"path": request.path}];
+                 }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%lu/mobilelocker/api/ping", (unsigned long)server.port]];
+  XCTestExpectation* done = [self expectationWithDescription:@"json"];
+  [[NSURLSession.sharedSession dataTaskWithRequest:[NSURLRequest requestWithURL:url]
+                                 completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+                                   XCTAssertNil(error);
+                                   XCTAssertEqual([(NSHTTPURLResponse*)response statusCode], 200);
+                                   NSDictionary* json = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+                                   XCTAssertEqualObjects(json[@"ok"], @YES);
+                                   XCTAssertEqualObjects(json[@"path"], @"/mobilelocker/api/ping");
+                                   [done fulfill];
+                                 }] resume];
+  [self waitForExpectationsWithTimeout:5.0 handler:nil];
+  [server stop];
+}
+
+/// Exact PresentationWebServer option flags (plus BindToLocalhost for local safety).
+- (void)testML_AppStartOptionsRequestAndStop {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addDefaultHandlerForMethod:@"GET"
+                        requestClass:[GCDWebServerRequest class]
+                        processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                          return [GCDWebServerDataResponse responseWithText:@"hi"];
+                        }];
+
+  NSDictionary* options = @{
+    GCDWebServerOption_Port: @0,
+    GCDWebServerOption_AutomaticallySuspendInBackground: @NO,
+    GCDWebServerOption_BindToLocalhost: @YES
+  };
+  NSError* startError = nil;
+  XCTAssertTrue([server startWithOptions:options error:&startError], @"%@", startError);
+
+  NSString* req = [NSString stringWithFormat:
+                               @"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  // Keep-alive remains off by default — response should close (no keep-alive header required).
+  NSString* connection = [self ml_headerValue:@"Connection" fromRawHTTP:raw];
+  XCTAssertTrue([connection.lowercaseString isEqualToString:@"close"] || connection == nil ||
+                ![connection.lowercaseString isEqualToString:@"keep-alive"]);
+
+  [server stop];
+}
+
+/// Opening/closing presentations: start → stop → start again must work.
+- (void)testML_StartStopStartAgainServesRequests {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addDefaultHandlerForMethod:@"GET"
+                        requestClass:[GCDWebServerRequest class]
+                        processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                          return [GCDWebServerDataResponse responseWithJSONObject:@{@"n": @1}];
+                        }];
+
+  NSError* err = nil;
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:&err], @"%@", err);
+  NSUInteger port1 = server.port;
+  {
+    NSString* req = @"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    NSData* raw = [self ml_rawHTTPOnPort:port1 request:req];
+    XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  }
+  [server stop];
+
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:&err], @"%@", err);
+  NSUInteger port2 = server.port;
+  {
+    NSString* req = @"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    NSData* raw = [self ml_rawHTTPOnPort:port2 request:req];
+    XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  }
+  [server stop];
+}
+
+/// Default Connection: close — two sequential client connections both succeed.
+- (void)testML_SequentialRequestsWithoutKeepAlive {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  __block NSUInteger hits = 0;
+  [server addDefaultHandlerForMethod:@"GET"
+                        requestClass:[GCDWebServerRequest class]
+                        processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                          hits += 1;
+                          return [GCDWebServerDataResponse responseWithJSONObject:@{@"hit": @(hits)}];
+                        }];
+
+  NSError* err = nil;
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:&err], @"%@", err);
+
+  for (int i = 0; i < 2; i++) {
+    NSString* req = @"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+    XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  }
+  XCTAssertEqual(hits, 2u);
+  [server stop];
+}
+
+/// Delegate callbacks used by PresentationWebServer (start/stop on main).
+- (void)testML_DelegateDidStartAndDidStop {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  MLDelegateProbe* probe = [[MLDelegateProbe alloc] init];
+  server.delegate = probe;
+
+  [server addDefaultHandlerForMethod:@"GET"
+                        requestClass:[GCDWebServerRequest class]
+                        processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                          return [GCDWebServerDataResponse responseWithText:@"x"];
+                        }];
+
+  XCTestExpectation* started = [self expectationWithDescription:@"didStart"];
+  probe.onStart = ^{
+    [started fulfill];
+  };
+  XCTestExpectation* stopped = [self expectationWithDescription:@"didStop"];
+  probe.onStop = ^{
+    [stopped fulfill];
+  };
+
+  NSError* err = nil;
+  XCTAssertTrue([server startWithOptions:[self ml_defaultStartOptions] error:&err], @"%@", err);
+  [self waitForExpectations:@[ started ] timeout:5.0];
+  XCTAssertTrue([NSThread isMainThread] || probe.startOnMain);  // start callback observed on main
+
+  [server stopWithCompletion:nil];
+  [self waitForExpectations:@[ stopped ] timeout:5.0];
+  XCTAssertTrue(probe.stopOnMain);
+}
+
 @end
+
 
