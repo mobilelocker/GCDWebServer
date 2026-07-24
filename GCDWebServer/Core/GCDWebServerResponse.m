@@ -204,6 +204,10 @@
     GCDWebServerGZipEncoder* encoder = [[GCDWebServerGZipEncoder alloc] initWithResponse:self reader:_reader];
     [_encoders addObject:encoder];
     _reader = encoder;
+    // GCD-20: Caches must vary on Accept-Encoding when body encoding differs by client.
+    if (_additionalHeaders[@"Vary"] == nil) {
+      [self setValue:@"Accept-Encoding" forAdditionalHeader:@"Vary"];
+    }
   } else if (_gzipContentEncodingEnabled && (isPartialContent || hasContentRange)) {
     GWS_LOG_DEBUG(@"Skipping gzip content encoding for byte-range / 206 response");
   }

@@ -241,10 +241,78 @@
   XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
   NSString* encoding = [self ml_headerValue:@"Content-Encoding" fromRawHTTP:raw];
   XCTAssertEqualObjects(encoding.lowercaseString, @"gzip");
+  NSString* vary = [self ml_headerValue:@"Vary" fromRawHTTP:raw];
+  XCTAssertTrue([vary.lowercaseString containsString:@"accept-encoding"], @"Vary=%@", vary);
   NSData* body = [self ml_bodyFromRawHTTP:raw];
   XCTAssertNotEqualObjects(body, fileData);  // compressed on wire
   NSData* inflated = [self ml_gunzip:body];
   XCTAssertEqualObjects(inflated, fileData);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+}
+
+/// GCD-20: gzip enabled on response but client did not Accept-Encoding: gzip → raw body.
+- (void)testML_GzipEnabledWithoutClientAcceptEncodingIsSkipped {
+  NSData* fileData = [@"0123456789ABCDEFGHIJno-gzip-client" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString* path = [self ml_tempFileWithContents:fileData];
+
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/asset"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   GCDWebServerFileResponse* response = [GCDWebServerFileResponse responseWithFile:path];
+                   response.gzipContentEncodingEnabled = YES;
+                   return response;
+                 }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSString* req = [NSString stringWithFormat:
+                               @"GET /asset HTTP/1.1\r\n"
+                               @"Host: localhost\r\n"
+                               @"Connection: close\r\n"
+                               @"\r\n"];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertNil([self ml_headerValue:@"Content-Encoding" fromRawHTTP:raw]);
+  XCTAssertEqualObjects([self ml_bodyFromRawHTTP:raw], fileData);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+}
+
+/// GCD-20: Accept-Encoding: GZIP (uppercase) still enables compression.
+- (void)testML_GzipAcceptEncodingIsCaseInsensitive {
+  NSData* fileData = [@"0123456789ABCDEFGHIJcase-insensitive-gzip" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString* path = [self ml_tempFileWithContents:fileData];
+
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/asset"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   GCDWebServerFileResponse* response = [GCDWebServerFileResponse responseWithFile:path];
+                   response.gzipContentEncodingEnabled = YES;
+                   return response;
+                 }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSString* req = [NSString stringWithFormat:
+                               @"GET /asset HTTP/1.1\r\n"
+                               @"Host: localhost\r\n"
+                               @"Accept-Encoding: GZIP\r\n"
+                               @"Connection: close\r\n"
+                               @"\r\n"];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  XCTAssertEqualObjects([self ml_headerValue:@"Content-Encoding" fromRawHTTP:raw].lowercaseString, @"gzip");
 
   [server stop];
   [[NSFileManager defaultManager] removeItemAtPath:path error:nil];

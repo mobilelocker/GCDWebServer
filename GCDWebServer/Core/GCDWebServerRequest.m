@@ -212,7 +212,9 @@ NSString* const GCDWebServerRequestAttribute_RegexCaptures = @"GCDWebServerReque
       }
     }
 
-    if ([[_headers objectForKey:@"Accept-Encoding"] rangeOfString:@"gzip"].location != NSNotFound) {
+    // GCD-20: Accept-Encoding tokens are case-insensitive (RFC 9110).
+    NSString* acceptEncoding = [_headers objectForKey:@"Accept-Encoding"];
+    if (acceptEncoding.length && [acceptEncoding rangeOfString:@"gzip" options:NSCaseInsensitiveSearch].location != NSNotFound) {
       _acceptsGzipContentEncoding = YES;
     }
 
