@@ -33,9 +33,9 @@ NS_ASSUME_NONNULL_BEGIN
  *  The GCDWebServerFileResponse subclass of GCDWebServerResponse reads the body
  *  of the HTTP response from a file on disk.
  *
- *  It will automatically set the contentType, lastModifiedDate and eTag
- *  properties of the GCDWebServerResponse according to the file extension and
- *  metadata.
+ *  It will automatically set the contentType, lastModifiedDate, eTag, and
+ *  Accept-Ranges (bytes) of the GCDWebServerResponse according to the file
+ *  extension and metadata (GCD-19).
  */
 @interface GCDWebServerFileResponse : GCDWebServerResponse
 @property(nonatomic, copy) NSString* contentType;  // Redeclare as non-null
