@@ -144,7 +144,8 @@ static inline NSDate* _NSDateFromTimeSpec(const struct timespec* t) {
     self.contentType = GCDWebServerGetMimeTypeForExtension([_path pathExtension], overrides);
     self.contentLength = _size;
     self.lastModifiedDate = _NSDateFromTimeSpec(&info.st_mtimespec);
-    self.eTag = [NSString stringWithFormat:@"%llu/%li/%li", info.st_ino, info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec];
+    // GCD-21: RFC 7232 entity-tags are quoted opaque strings.
+    self.eTag = [NSString stringWithFormat:@"\"%llu/%li/%li\"", info.st_ino, info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec];
   }
   return self;
 }

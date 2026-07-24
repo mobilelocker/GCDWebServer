@@ -318,6 +318,48 @@
   [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
 }
 
+/// GCD-21: FileResponse ETag is quoted; If-None-Match returns 304.
+- (void)testML_FileResponseETagConditionalGETReturns304 {
+  NSData* fileData = [@"etag-conditional-body" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString* path = [self ml_tempFileWithContents:fileData];
+
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/asset"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   return [GCDWebServerFileResponse responseWithFile:path];
+                 }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSString* req1 = [NSString stringWithFormat:
+                                @"GET /asset HTTP/1.1\r\n"
+                                @"Host: localhost\r\n"
+                                @"Connection: close\r\n"
+                                @"\r\n"];
+  NSData* raw1 = [self ml_rawHTTPOnPort:server.port request:req1];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw1], 200);
+  NSString* etag = [self ml_headerValue:@"ETag" fromRawHTTP:raw1];
+  XCTAssertNotNil(etag);
+  XCTAssertTrue([etag hasPrefix:@"\""] && [etag hasSuffix:@"\""], @"ETag should be quoted: %@", etag);
+
+  NSString* req2 = [NSString stringWithFormat:
+                                @"GET /asset HTTP/1.1\r\n"
+                                @"Host: localhost\r\n"
+                                @"If-None-Match: %@\r\n"
+                                @"Connection: close\r\n"
+                                @"\r\n",
+                            etag];
+  NSData* raw2 = [self ml_rawHTTPOnPort:server.port request:req2];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw2], 304);
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+}
+
 /// GCD-19: plain FileResponse advertises Accept-Ranges without callers setting it.
 - (void)testML_FileResponseIncludesAcceptRangesHeader {
   NSData* fileData = [@"0123456789" dataUsingEncoding:NSUTF8StringEncoding];
