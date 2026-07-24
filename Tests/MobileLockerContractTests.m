@@ -266,4 +266,81 @@
   [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
 }
 
+#pragma mark - GCD-13: Async routes, stop, double completion
+
+/// Scanner/picker/video routes complete after a Task hop with JSON.
+- (void)testML_AsyncProcessBlockCompletesWithJSONAfterHop {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/api/async-ok"
+                 requestClass:[GCDWebServerRequest class]
+          asyncProcessBlock:^(GCDWebServerRequest* request, GCDWebServerCompletionBlock completionBlock) {
+            // Simulate PresentationWebServer Task { ... finish.call(...) } hop.
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+              usleep(20000);  // 20ms
+              completionBlock([GCDWebServerDataResponse responseWithJSONObject:@{@"status": @"ok", @"source": @"async"}]);
+            });
+          }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%lu/api/async-ok", (unsigned long)server.port]];
+  XCTestExpectation* done = [self expectationWithDescription:@"async json"];
+  [[NSURLSession.sharedSession dataTaskWithRequest:[NSURLRequest requestWithURL:url]
+                                 completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+                                   XCTAssertNil(error);
+                                   XCTAssertEqual([(NSHTTPURLResponse*)response statusCode], 200);
+                                   NSDictionary* json = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+                                   XCTAssertEqualObjects(json[@"status"], @"ok");
+                                   XCTAssertEqualObjects(json[@"source"], @"async");
+                                   [done fulfill];
+                                 }] resume];
+  [self waitForExpectationsWithTimeout:5.0 handler:nil];
+  [server stop];
+}
+
+/// MLI-1575: app still calls completion after stop; library once-guard must ignore extras.
+- (void)testML_StopForcesAsyncCompletionAndIgnoresSecondCall {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  XCTestExpectation* processStarted = [self expectationWithDescription:@"held"];
+  // This is GCD's once-wrapped completion (same object abortForServerStop will invoke).
+  __block GCDWebServerCompletionBlock held = nil;
+
+  [server addHandlerForMethod:@"GET"
+                         path:@"/api/hold"
+                 requestClass:[GCDWebServerRequest class]
+          asyncProcessBlock:^(GCDWebServerRequest* request, GCDWebServerCompletionBlock completionBlock) {
+            held = [completionBlock copy];
+            [processStarted fulfill];
+          }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%lu/api/hold", (unsigned long)server.port]];
+  XCTestExpectation* clientDone = [self expectationWithDescription:@"client"];
+  [[NSURLSession.sharedSession dataTaskWithRequest:[NSURLRequest requestWithURL:url]
+                                 completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+                                   // Connection may fail or return 503 after abort — either is fine; must complete.
+                                   [clientDone fulfill];
+                                 }] resume];
+
+  [self waitForExpectations:@[ processStarted ] timeout:5.0];
+  XCTAssertNotNil(held);
+
+  XCTestExpectation* stopped = [self expectationWithDescription:@"stopped"];
+  [server stopWithCompletion:^{
+    [stopped fulfill];
+  }];
+  [self waitForExpectations:@[ stopped, clientDone ] timeout:5.0];
+
+  // App-style late finishes after stop (cancelled JSON) — must not crash / hang.
+  held([GCDWebServerDataResponse responseWithJSONObject:@{@"status": @"cancelled"}]);
+  held([GCDWebServerDataResponse responseWithJSONObject:@{@"status": @"too-late"}]);
+}
+
 @end
+
