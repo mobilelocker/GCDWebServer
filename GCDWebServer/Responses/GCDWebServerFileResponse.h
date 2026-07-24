@@ -108,6 +108,24 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (nullable instancetype)initWithFile:(NSString*)path byteRange:(NSRange)range isAttachment:(BOOL)attachment mimeTypeOverrides:(nullable NSDictionary<NSString*, NSString*>*)overrides;
 
+/**
+ *  Resolves `urlPath` under `documentRoot` safely (rejects path traversal) and
+ *  returns a file response for the resulting regular file.
+ *
+ *  When `allowIndexHTML` is YES and the path is empty, "/", a directory, or ends
+ *  with "/", "index.html" is appended. Sets "Accept-Ranges: bytes".
+ *
+ *  Returns nil if the path escapes the root, does not exist, or is not a file
+ *  (after optional index resolution).
+ *
+ *  Intended for embedded hosts (e.g. Mobile Locker PresentationWebServer).
+ */
++ (nullable instancetype)responseWithFileUnderRoot:(NSString*)documentRoot
+                                           urlPath:(NSString*)urlPath
+                                         byteRange:(NSRange)byteRange
+                                    allowIndexHTML:(BOOL)allowIndexHTML
+                                 mimeTypeOverrides:(nullable NSDictionary<NSString*, NSString*>*)overrides;
+
 @end
 
 NS_ASSUME_NONNULL_END
