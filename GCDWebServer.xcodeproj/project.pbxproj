@@ -103,7 +103,9 @@
 		E208D1B3167BB17E00500836 /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E208D1B2167BB17E00500836 /* CoreServices.framework */; };
 		E221128F1690B6470048D2B2 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = E221128E1690B6470048D2B2 /* main.m */; };
 		E240392B1BA09207000B7089 /* GCDWebServers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CEE28CD11AE004D800F4023C /* GCDWebServers.framework */; };
+		C0FFEE01LIBZTEST00000001 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = E2DDD22C1BE6A0EF002CE867 /* libz.tbd */; };
 		E24039321BA092B7000B7089 /* Tests.m in Sources */ = {isa = PBXBuildFile; fileRef = E24039311BA092B7000B7089 /* Tests.m */; };
+		B2C3D4E5F607182930AABBCC /* MobileLockerContractTests.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F607182930AABB /* MobileLockerContractTests.m */; };
 		E24A3C0721E2879F00C58878 /* GCDWebServers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CEE28CEF1AE0051F00F4023C /* GCDWebServers.framework */; };
 		E24A3C0821E287A300C58878 /* GCDWebServers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2DDD18B1BE69404002CE867 /* GCDWebServers.framework */; };
 		E24A3C0E21E28D3C00C58878 /* GCDWebServers.framework in Copy Frameworks */ = {isa = PBXBuildFile; fileRef = CEE28CEF1AE0051F00F4023C /* GCDWebServers.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -312,6 +314,7 @@
 		E221129C1690B7BA0048D2B2 /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS6.0.sdk/System/Library/Frameworks/CoreServices.framework; sourceTree = DEVELOPER_DIR; };
 		E24039251BA09207000B7089 /* Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E24039311BA092B7000B7089 /* Tests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = Tests.m; sourceTree = "<group>"; };
+		A1B2C3D4E5F607182930AABB /* MobileLockerContractTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = MobileLockerContractTests.m; path = Tests/MobileLockerContractTests.m; sourceTree = SOURCE_ROOT; };
 		E24A3C4021E2940600C58878 /* module.modulemap */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; path = module.modulemap; sourceTree = "<group>"; };
 		E28BAE1618F99C810095C089 /* GCDWebServer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GCDWebServer.h; sourceTree = "<group>"; };
 		E28BAE1718F99C810095C089 /* GCDWebServer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GCDWebServer.m; sourceTree = "<group>"; };
@@ -419,6 +422,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E240392B1BA09207000B7089 /* GCDWebServers.framework in Frameworks */,
+				C0FFEE01LIBZTEST00000001 /* libz.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -494,6 +498,7 @@
 				CEE28CF31AE0051F00F4023C /* GCDWebServers.h */,
 				CEE28CF21AE0051F00F4023C /* Info.plist */,
 				E24039311BA092B7000B7089 /* Tests.m */,
+				A1B2C3D4E5F607182930AABB /* MobileLockerContractTests.m */,
 			);
 			path = Frameworks;
 			sourceTree = "<group>";
@@ -1058,6 +1063,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E24039321BA092B7000B7089 /* Tests.m in Sources */,
+				B2C3D4E5F607182930AABBCC /* MobileLockerContractTests.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1335,8 +1341,9 @@
 					"$(DEVELOPER_FRAMEWORKS_DIR)",
 					"$(inherited)",
 				);
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				PRODUCT_NAME = Tests;
 				SDKROOT = macosx;
 				WARNING_CFLAGS = (
@@ -1353,8 +1360,9 @@
 					"$(DEVELOPER_FRAMEWORKS_DIR)",
 					"$(inherited)",
 				);
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				PRODUCT_NAME = Tests;
 				SDKROOT = macosx;
 				WARNING_CFLAGS = (
