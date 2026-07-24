@@ -1021,6 +1021,62 @@
   [server stop];
 }
 
+- (void)testKeepAlive_idleTimeoutClosesWaitingConnection {
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                    exactPath:@"/ping"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   return [GCDWebServerDataResponse responseWithText:@"pong"];
+                 }];
+  NSDictionary* opts = @{
+    GCDWebServerOption_Port : @0,
+    GCDWebServerOption_BindToLocalhost : @YES,
+    GCDWebServerOption_AutomaticallySuspendInBackground : @NO,
+    GCDWebServerOption_EnableKeepAlive : @YES,
+    GCDWebServerOption_KeepAliveIdleTimeout : @0.25
+  };
+  XCTAssertTrue([server startWithOptions:opts error:NULL]);
+
+  // One keep-alive request; drain full response; idle past timeout → peer shutdown.
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  XCTAssertGreaterThan(fd, 0);
+  struct sockaddr_in addr;
+  bzero(&addr, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons((uint16_t)server.port);
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  XCTAssertEqual(connect(fd, (struct sockaddr*)&addr, sizeof(addr)), 0);
+  NSString* req = @"GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n";
+  NSData* reqData = [req dataUsingEncoding:NSUTF8StringEncoding];
+  send(fd, reqData.bytes, reqData.length, 0);
+
+  NSMutableData* response = [NSMutableData data];
+  char buf[4096];
+  // Drain until headers+body received (Content-Length: 4 for "pong")
+  NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+  while ([[NSDate date] compare:deadline] == NSOrderedAscending) {
+    ssize_t n = recv(fd, buf, sizeof(buf), 0);
+    if (n > 0) {
+      [response appendBytes:buf length:(NSUInteger)n];
+      NSString* text = [[NSString alloc] initWithData:response encoding:NSUTF8StringEncoding];
+      if ([text containsString:@"\r\n\r\n"] && [text containsString:@"pong"]) {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  XCTAssertTrue(response.length > 0);
+
+  [NSThread sleepForTimeInterval:0.5];
+  ssize_t n = recv(fd, buf, sizeof(buf), 0);
+  // Peer shutdown after idle timeout → 0 (EOF) or -1 if already closed.
+  XCTAssertTrue(n <= 0, @"expected peer close after idle timeout, got %zd bytes", n);
+  close(fd);
+  [server stop];
+}
+
 - (void)testRouter_exactBeatsPrefixBeatsLegacy {
   GCDWebServer* server = [[GCDWebServer alloc] init];
   // Legacy LIFO catch-all (registered first → lowest precedence among legacy; maps beat all legacy).
