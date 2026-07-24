@@ -96,6 +96,8 @@ NS_ASSUME_NONNULL_END
   // GCD-29: idle timer while waiting for next request headers
   dispatch_source_t _keepAliveIdleTimer;
   BOOL _waitingForNextKeepAliveRequest;
+  // GCD-30: accumulated body size for chunked requests under max length
+  NSUInteger _receivedBodyLength;
 #ifdef __GCDWEBSERVER_ENABLE_TESTING__
   NSUInteger _connectionIndex;
   NSString* _requestPath;
@@ -215,6 +217,7 @@ NS_ASSUME_NONNULL_END
   _response = nil;
   _statusCode = 0;
   _virtualHEAD = NO;
+  _receivedBodyLength = 0;
   _processCompletionInvoked = NO;
   _pendingProcessCompletion = nil;
   _keepAliveForResponse = NO;
@@ -443,6 +446,13 @@ NS_ASSUME_NONNULL_END
               self->_request.localAddressData = self.localAddressData;
               self->_request.remoteAddressData = self.remoteAddressData;
               if ([self->_request hasBody]) {
+                // GCD-30: reject oversized Content-Length before buffering the body.
+                NSUInteger maxBody = self->_server.maxRequestBodyLength;
+                if (maxBody > 0 && !self->_request.usesChunkedTransferEncoding && self->_request.contentLength > maxBody) {
+                  GWS_LOG_WARNING(@"Request body length %lu exceeds max %lu on socket %i", (unsigned long)self->_request.contentLength, (unsigned long)maxBody, self->_socket);
+                  [self abortRequest:self->_request withStatusCode:kGCDWebServerHTTPStatusCode_RequestEntityTooLarge];
+                  return;
+                }
                 [self->_request prepareForWriting];
                 if (self->_request.usesChunkedTransferEncoding || (extraData.length <= self->_request.contentLength)) {
                   NSString* expectHeader = [requestHeaders objectForKey:@"Expect"];
@@ -692,8 +702,16 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
         }
         const char* ptr = (char*)chunkData.bytes + range.location + range.length + length;
         if ((*ptr == '\r') && (*(ptr + 1) == '\n')) {
+          NSUInteger maxBody = _server.maxRequestBodyLength;
+          if (maxBody > 0 && _receivedBodyLength + length > maxBody) {
+            GWS_LOG_WARNING(@"Chunked request body exceeds max %lu on socket %i", (unsigned long)maxBody, _socket);
+            [self abortRequest:_request withStatusCode:kGCDWebServerHTTPStatusCode_RequestEntityTooLarge];
+            block(NO);
+            return;
+          }
           NSError* error = nil;
           if ([_request performWriteData:[chunkData subdataWithRange:NSMakeRange(range.location + range.length, length)] error:&error]) {
+            _receivedBodyLength += length;
             [chunkData replaceBytesInRange:NSMakeRange(0, range.location + range.length + length + 2) withBytes:NULL length:0];
           } else {
             GWS_LOG_ERROR(@"Failed writing request body on socket %i: %@", _socket, error);

@@ -78,6 +78,7 @@ NSString* const GCDWebServerOption_AutomaticallySuspendInBackground = @"Automati
 NSString* const GCDWebServerOption_EnableKeepAlive = @"EnableKeepAlive";
 NSString* const GCDWebServerOption_MaxKeepAliveRequests = @"MaxKeepAliveRequests";
 NSString* const GCDWebServerOption_KeepAliveIdleTimeout = @"KeepAliveIdleTimeout";
+NSString* const GCDWebServerOption_MaxRequestBodyLength = @"MaxRequestBodyLength";
 
 NSString* const GCDWebServerAuthenticationMethod_Basic = @"Basic";
 NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
@@ -110,6 +111,10 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
 
 - (NSTimeInterval)keepAliveIdleTimeout {
   return _keepAliveIdleTimeout;
+}
+
+- (NSUInteger)maxRequestBodyLength {
+  return _maxRequestBodyLength;
 }
 
 + (void)initialize {
@@ -605,6 +610,7 @@ static inline NSString* _EncodeBase64(NSString* string) {
   _enableKeepAlive = [(NSNumber*)_GetOption(_options, GCDWebServerOption_EnableKeepAlive, @NO) boolValue];
   _maxKeepAliveRequests = [(NSNumber*)_GetOption(_options, GCDWebServerOption_MaxKeepAliveRequests, @100) unsignedIntegerValue];
   _keepAliveIdleTimeout = [(NSNumber*)_GetOption(_options, GCDWebServerOption_KeepAliveIdleTimeout, @0) doubleValue];
+  _maxRequestBodyLength = [(NSNumber*)_GetOption(_options, GCDWebServerOption_MaxRequestBodyLength, @0) unsignedIntegerValue];
   if (_maxKeepAliveRequests == 0) {
     _maxKeepAliveRequests = 100;
   }
@@ -761,6 +767,7 @@ static inline NSString* _EncodeBase64(NSString* string) {
   _bindToLocalhost = NO;
   _enableKeepAlive = NO;
   _keepAliveIdleTimeout = 0;
+  _maxRequestBodyLength = 0;
   _maxKeepAliveRequests = 0;
 
   _serverName = nil;

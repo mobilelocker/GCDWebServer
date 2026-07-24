@@ -82,6 +82,7 @@ Also:
 - GCD-27: `GCDWebServerCachePolicy` + `suppressETag` on responses (`no-cache` / `no-store` / `max-age`)
 - GCD-28: exact-path and path-prefix handler maps (checked before LIFO matchBlocks)
 - GCD-29: `GCDWebServerOption_KeepAliveIdleTimeout` (default 0 = off)
+- GCD-30: `GCDWebServerOption_MaxRequestBodyLength` (default 0 = unlimited; oversize → 413)
 
 ### 3.5.8
 - Revert Bonjour to CFNetService (NSNetService not visible with iOS 18 deployment target)

@@ -234,6 +234,7 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
   BOOL _enableKeepAlive;  // GCD-7
   NSUInteger _maxKeepAliveRequests;  // GCD-7
   NSTimeInterval _keepAliveIdleTimeout;  // GCD-29
+  NSUInteger _maxRequestBodyLength;  // GCD-30
 #if TARGET_OS_IPHONE
   BOOL _suspendInBackground;
   UIBackgroundTaskIdentifier _backgroundTask;
@@ -264,6 +265,7 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
 @property(nonatomic, readonly) BOOL enableKeepAlive;  // GCD-7
 @property(nonatomic, readonly) NSUInteger maxKeepAliveRequests;  // GCD-7
 @property(nonatomic, readonly) NSTimeInterval keepAliveIdleTimeout;  // GCD-29
+@property(nonatomic, readonly) NSUInteger maxRequestBodyLength;  // GCD-30
 - (void)willStartConnection:(GCDWebServerConnection*)connection;
 - (void)didEndConnection:(GCDWebServerConnection*)connection;
 @end
