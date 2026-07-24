@@ -29,12 +29,7 @@
 #error GCDWebUploader requires ARC
 #endif
 
-#import <TargetConditionals.h>
-#if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
-#else
-#import <SystemConfiguration/SystemConfiguration.h>
-#endif
 
 #import "GCDWebUploader.h"
 #import "GCDWebServerFunctions.h"
@@ -86,22 +81,13 @@ NS_ASSUME_NONNULL_END
                  requestClass:[GCDWebServerRequest class]
                  processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
 
-#if TARGET_OS_IPHONE
                    NSString* device = [[UIDevice currentDevice] name];
-#else
-          NSString* device = CFBridgingRelease(SCDynamicStoreCopyComputerName(NULL, NULL));
-#endif
                    NSString* title = server.title;
                    if (title == nil) {
                      title = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDisplayName"];
                      if (title == nil) {
                        title = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"];
                      }
-#if !TARGET_OS_IPHONE
-                     if (title == nil) {
-                       title = [[NSProcessInfo processInfo] processName];
-                     }
-#endif
                    }
                    NSString* header = server.header;
                    if (header == nil) {
@@ -122,12 +108,6 @@ NS_ASSUME_NONNULL_END
                        name = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"];
                      }
                      NSString* version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
-#if !TARGET_OS_IPHONE
-                     if (!name && !version) {
-                       name = @"OS X";
-                       version = [[NSProcessInfo processInfo] operatingSystemVersionString];
-                     }
-#endif
                      footer = [NSString stringWithFormat:[siteBundle localizedStringForKey:@"FOOTER_FORMAT" value:@"" table:nil], name, version];
                    }
                    return [GCDWebServerDataResponse responseWithHTMLTemplate:(NSString*)[siteBundle pathForResource:@"index" ofType:@"html"]

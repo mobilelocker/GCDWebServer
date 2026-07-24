@@ -30,9 +30,7 @@
 #endif
 
 #import <TargetConditionals.h>
-#if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
-#endif
 #import <netinet/in.h>
 #import <dns_sd.h>
 
@@ -44,8 +42,6 @@
 #define kDefaultPort 80
 #endif
 
-
-#if TARGET_OS_IPHONE
 // Returns YES when running inside an app extension process.
 // UIApplication.sharedApplication is unavailable in extensions and returns nil,
 // so any code that calls it must be skipped in that context.
@@ -57,7 +53,6 @@ static BOOL _GCDWebServerIsAppExtension(void) {
   });
   return isExtension;
 }
-#endif
 
 NSString* const GCDWebServerOption_Port = @"Port";
 NSString* const GCDWebServerOption_BonjourName = @"BonjourName";
@@ -130,9 +125,7 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
     _exactHandlers = [[NSMutableDictionary alloc] init];
     _prefixHandlers = [[NSMutableArray alloc] init];
     _activeConnectionSet = [NSHashTable weakObjectsHashTable];
-#if TARGET_OS_IPHONE
     _backgroundTask = UIBackgroundTaskInvalid;
-#endif
   }
   return self;
 }
@@ -150,8 +143,6 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
 #endif
 }
 
-#if TARGET_OS_IPHONE
-
 // Always called on main thread
 - (void)_startBackgroundTask {
   GWS_DCHECK([NSThread isMainThread]);
@@ -168,8 +159,6 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
   }
 }
 
-#endif
-
 // Always called on main thread
 - (void)_didConnect {
   GWS_DCHECK([NSThread isMainThread]);
@@ -177,11 +166,9 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
   _connected = YES;
   GWS_LOG_DEBUG(@"Did connect");
 
-#if TARGET_OS_IPHONE
   if (!_GCDWebServerIsAppExtension() && [[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground) {
     [self _startBackgroundTask];
   }
-#endif
 
   if ([_delegate respondsToSelector:@selector(webServerDidConnect:)]) {
     [_delegate webServerDidConnect:self];
@@ -206,8 +193,6 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
     [self->_activeConnectionSet addObject:connection];
   });
 }
-
-#if TARGET_OS_IPHONE
 
 // Always called on main thread
 - (void)_endBackgroundTask {
@@ -236,8 +221,6 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
   }
 }
 
-#endif
-
 // Always called on main thread
 - (void)_didDisconnect {
   GWS_DCHECK([NSThread isMainThread]);
@@ -245,9 +228,7 @@ NSString* const GCDWebServerAuthenticationMethod_DigestAccess = @"DigestAccess";
   _connected = NO;
   GWS_LOG_DEBUG(@"Did disconnect");
 
-#if TARGET_OS_IPHONE
   [self _endBackgroundTask];
-#endif
 
   if ([_delegate respondsToSelector:@selector(webServerDidDisconnect:)]) {
     [_delegate webServerDidDisconnect:self];
@@ -791,8 +772,6 @@ static inline NSString* _EncodeBase64(NSString* string) {
   }
 }
 
-#if TARGET_OS_IPHONE
-
 - (void)_didEnterBackground:(NSNotification*)notification {
   GWS_DCHECK([NSThread isMainThread]);
   GWS_LOG_DEBUG(@"Did enter background");
@@ -818,27 +797,18 @@ static inline NSString* _EncodeBase64(NSString* string) {
   }
 }
 
-#endif
-
 - (BOOL)startWithOptions:(NSDictionary<NSString*, id>*)options error:(NSError**)error {
   if (_options == nil) {
     _options = options ? [options copy] : @{};
-#if TARGET_OS_IPHONE
     _suspendInBackground = [(NSNumber*)_GetOption(_options, GCDWebServerOption_AutomaticallySuspendInBackground, @YES) boolValue];
-    if (((_suspendInBackground == NO) || _GCDWebServerIsAppExtension() || ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground)) && ![self _start:error])
-#else
-    if (![self _start:error])
-#endif
-    {
+    if (((_suspendInBackground == NO) || _GCDWebServerIsAppExtension() || ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground)) && ![self _start:error]) {
       _options = nil;
       return NO;
     }
-#if TARGET_OS_IPHONE
     if (_suspendInBackground) {
       [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_didEnterBackground:) name:UIApplicationDidEnterBackgroundNotification object:nil];
       [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_willEnterForeground:) name:UIApplicationWillEnterForegroundNotification object:nil];
     }
-#endif
     return YES;
   } else {
     GWS_DNOT_REACHED();
@@ -855,12 +825,10 @@ static inline NSString* _EncodeBase64(NSString* string) {
     GWS_LOG_WARNING(@"- [%@ stop] called on the main thread; this may block until listening sockets close. Prefer -stopWithCompletion:.", [self class]);
   }
   if (_options) {
-#if TARGET_OS_IPHONE
     if (_suspendInBackground) {
       [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationDidEnterBackgroundNotification object:nil];
       [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationWillEnterForegroundNotification object:nil];
     }
-#endif
     if (_source4) {
       [self _stop];
     }

@@ -32,7 +32,9 @@ let package = Package(
                 .headerSearchPath("Responses")
             ],
             linkerSettings: [
-                .linkedLibrary("z")
+                .linkedLibrary("z"),
+                .linkedFramework("UniformTypeIdentifiers"),
+                .linkedFramework("UIKit")
             ]
         ),
         .target(
@@ -68,18 +70,6 @@ let package = Package(
             name: "GCDWebServerTests",
             dependencies: ["GCDWebServer", "GCDWebDAVServer", "GCDWebUploader"],
             path: "Tests",
-            exclude: [
-                "HTMLFileUpload",
-                "HTMLForm",
-                "Payload.zip",
-                "Sample-Movie.mp4",
-                "WebDAV-Cyberduck",
-                "WebDAV-Finder",
-                "WebDAV-Transmit",
-                "WebServer",
-                "WebServer-Sample-Movie",
-                "WebUploader"
-            ],
             cSettings: [
                 .headerSearchPath("../GCDWebServer/Core"),
                 .headerSearchPath("../GCDWebServer/include"),

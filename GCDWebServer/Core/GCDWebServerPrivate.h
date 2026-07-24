@@ -28,9 +28,7 @@
 #import <os/object.h>
 #import <sys/socket.h>
 #import <TargetConditionals.h>
-#if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
-#endif
 #import <dns_sd.h>
 
 /**
@@ -235,10 +233,8 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
   NSUInteger _maxKeepAliveRequests;  // GCD-7
   NSTimeInterval _keepAliveIdleTimeout;  // GCD-29
   NSUInteger _maxRequestBodyLength;  // GCD-30
-#if TARGET_OS_IPHONE
   BOOL _suspendInBackground;
   UIBackgroundTaskIdentifier _backgroundTask;
-#endif
 #ifdef __GCDWEBSERVER_ENABLE_TESTING__
   BOOL _recording;
 #endif

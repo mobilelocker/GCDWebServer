@@ -32,11 +32,12 @@ Extra built-in features:
 
 Included extensions:
 * [GCDWebUploader](GCDWebUploader/GCDWebUploader.h): subclass of ```GCDWebServer``` that implements an interface for uploading and downloading files using a web browser
-* [GCDWebDAVServer](GCDWebDAVServer/GCDWebDAVServer.h): subclass of ```GCDWebServer``` that implements a class 1 [WebDAV](https://en.wikipedia.org/wiki/WebDAV) server (with partial class 2 support for macOS Finder)
+* [GCDWebDAVServer](GCDWebDAVServer/GCDWebDAVServer.h): subclass of ```GCDWebServer``` that implements a class 1 [WebDAV](https://en.wikipedia.org/wiki/WebDAV) server
 
 What's not supported (but not really required from an embedded HTTP server):
 * HTTPS
 * Keep-alive is **optional** (off by default; enable with `GCDWebServerOption_EnableKeepAlive`)
+* **macOS and tvOS** (this fork is iOS-only)
 
 Requirements (this fork):
 * iOS 18.0 or later
@@ -59,8 +60,28 @@ Add to your Xcode project or `Package.swift` using the Bitbucket repo:
 
 Available products: `GCDWebServer`, `GCDWebDAVServer`, `GCDWebUploader`.
 
+Running tests
+=============
+
+Unit and Mobile Locker contract tests are the SPM `GCDWebServerTests` target. Run on an iOS Simulator:
+
+```bash
+./Run-Tests.sh
+# equivalent (without the Xcode demo project present):
+xcodebuild test -scheme GCDWebServer-Package -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+Open `Package.swift` in Xcode (not the demo `.xcodeproj`) and use Product → Test if you prefer the IDE.
+
 Changelog
 =========
+
+### 4.0.1 (iOS-only cleanup — GCD-34)
+- Removed macOS and tvOS sample apps, Xcode targets, and schemes
+- Dropped Mac CLI fixture integration harness and recorded request/response corpora
+- Library sources assume iOS (UIKit, UniformTypeIdentifiers); non-iOS `#if` fallbacks removed
+- Xcode iOS deployment targets aligned to 18.0 to match `Package.swift`
+- `Run-Tests.sh` runs SPM package tests on the iOS Simulator
 
 ### 4.0.0 (reliability for Mobile Locker presentations)
 Breaking / notable for consumers:
@@ -144,39 +165,9 @@ Hello World
 
 These code snippets show how to implement a custom HTTP server that runs on port 8080 and returns a "Hello World" HTML page to any request. Since GCDWebServer uses GCD blocks to handle requests, no subclassing or delegates are needed, which results in very clean code.
 
-**IMPORTANT:** If not using CocoaPods, be sure to add the `libz` shared system library to the Xcode target for your app.
+**IMPORTANT:** Prefer SPM. If embedding sources manually, link `libz` and add `$(SDKROOT)/usr/include/libxml2` when using WebDAV.
 
-**macOS version (command line tool):**
-```objectivec
-#import "GCDWebServer.h"
-#import "GCDWebServerDataResponse.h"
-
-int main(int argc, const char* argv[]) {
-  @autoreleasepool {
-    
-    // Create server
-    GCDWebServer* webServer = [[GCDWebServer alloc] init];
-    
-    // Add a handler to respond to GET requests on any URL
-    [webServer addDefaultHandlerForMethod:@"GET"
-                             requestClass:[GCDWebServerRequest class]
-                             processBlock:^GCDWebServerResponse *(GCDWebServerRequest* request) {
-      
-      return [GCDWebServerDataResponse responseWithHTML:@"<html><body><p>Hello World</p></body></html>"];
-      
-    }];
-    
-    // Use convenience method that runs server on port 8080
-    // until SIGINT (Ctrl-C in Terminal) or SIGTERM is received
-    [webServer runWithPort:8080 bonjourName:nil];
-    NSLog(@"Visit %@ in your web browser", webServer.serverURL);
-    
-  }
-  return 0;
-}
-```
-
-**iOS version:**
+**iOS:**
 ```objectivec
 #import "GCDWebServer.h"
 #import "GCDWebServerDataResponse.h"
@@ -202,7 +193,7 @@ int main(int argc, const char* argv[]) {
     
   }];
   
-  // Start server on port 8080
+  // Start server on port 8080 (prefer BindToLocalhost for embedded WKWebView)
   [_webServer startWithPort:8080 bonjourName:nil];
   NSLog(@"Visit %@ in your web browser", _webServer.serverURL);
   
@@ -210,34 +201,6 @@ int main(int argc, const char* argv[]) {
 }
 
 @end
-```
-
-**macOS Swift version (command line tool):**
-
-***webServer.swift***
-```swift
-import Foundation
-import GCDWebServer
-
-func initWebServer() {
-
-    let webServer = GCDWebServer()
-
-    webServer.addDefaultHandler(forMethod: "GET", request: GCDWebServerRequest.self, processBlock: {request in
-            return GCDWebServerDataResponse(html:"<html><body><p>Hello World</p></body></html>")
-            
-        })
-        
-    webServer.start(withPort: 8080, bonjourName: "GCD Web Server")
-    
-    print("Visit \(webServer.serverURL) in your web browser")
-}
-```
-
-***WebServer-Bridging-Header.h***
-```objectivec
-#import <GCDWebServer/GCDWebServer.h>
-#import <GCDWebServer/GCDWebServerDataResponse.h>
 ```
 
 Web Based Uploads in iOS Apps
@@ -271,9 +234,7 @@ Simply instantiate and run a ```GCDWebUploader``` instance then visit ```http://
 WebDAV Server in iOS Apps
 =========================
 
-GCDWebDAVServer is a subclass of ```GCDWebServer``` that provides a class 1 compliant [WebDAV](https://en.wikipedia.org/wiki/WebDAV) server. This lets users upload, download, delete files and create directories from a directory inside your iOS app's sandbox using any WebDAV client like [Transmit](https://panic.com/transmit/) (Mac), [ForkLift](http://binarynights.com/forklift/) (Mac) or [CyberDuck](http://cyberduck.io/) (Mac / Windows).
-
-GCDWebDAVServer should also work with the [macOS Finder](http://support.apple.com/kb/PH13859) as it is partially class 2 compliant (but only when the client is the macOS WebDAV implementation).
+GCDWebDAVServer is a subclass of ```GCDWebServer``` that provides a class 1 compliant [WebDAV](https://en.wikipedia.org/wiki/WebDAV) server. This lets users upload, download, delete files and create directories from a directory inside your iOS app's sandbox using a WebDAV client.
 
 Simply instantiate and run a ```GCDWebDAVServer``` instance then connect to ```http://{YOUR-IOS-DEVICE-IP-ADDRESS}/``` using a WebDAV client:
 
@@ -301,22 +262,19 @@ Simply instantiate and run a ```GCDWebDAVServer``` instance then connect to ```h
 Serving a Static Website
 ========================
 
-GCDWebServer includes a built-in handler that can recursively serve a directory (it also lets you control how the ["Cache-Control"](http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.9) header should be set):
+GCDWebServer includes built-in handlers that can serve a directory (see `addGETHandlerForBasePath:…` and `addGETHandlerForDocumentRoot:…` for safer presentation hosting). You can control cache policy and range support via the public APIs.
 
-**macOS version (command line tool):**
 ```objectivec
 #import "GCDWebServer.h"
 
-int main(int argc, const char* argv[]) {
-  @autoreleasepool {
-    
-    GCDWebServer* webServer = [[GCDWebServer alloc] init];
-    [webServer addGETHandlerForBasePath:@"/" directoryPath:NSHomeDirectory() indexFilename:nil cacheAge:3600 allowRangeRequests:YES];
-    [webServer runWithPort:8080];
-    
-  }
-  return 0;
-}
+// Inside application:didFinishLaunchingWithOptions: (or equivalent)
+NSString* root = [[NSBundle mainBundle] resourcePath];
+[webServer addGETHandlerForBasePath:@"/"
+                      directoryPath:root
+                      indexFilename:@"index.html"
+                           cacheAge:3600
+                 allowRangeRequests:YES];
+[webServer startWithPort:8080 bonjourName:nil];
 ```
 
 Using GCDWebServer
