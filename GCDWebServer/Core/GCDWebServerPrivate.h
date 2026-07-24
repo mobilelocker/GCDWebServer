@@ -171,6 +171,7 @@ static inline NSError* GCDWebServerMakePosixError(int code) {
 }
 
 extern void GCDWebServerInitializeFunctions(void);
+extern NSString* GCDWebServerEnsureUTF8CharsetIfNeeded(NSString* mimeType);
 extern NSString* _Nullable GCDWebServerNormalizeHeaderValue(NSString* _Nullable value);
 extern NSString* _Nullable GCDWebServerTruncateHeaderValue(NSString* _Nullable value);
 extern NSString* _Nullable GCDWebServerExtractHeaderValueParameter(NSString* _Nullable value, NSString* attribute);
