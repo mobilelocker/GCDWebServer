@@ -113,10 +113,11 @@ NS_ASSUME_NONNULL_BEGIN
  *  returns a file response for the resulting regular file.
  *
  *  When `allowIndexHTML` is YES and the path is empty, "/", a directory, or ends
- *  with "/", "index.html" is appended. Sets "Accept-Ranges: bytes".
+ *  with "/", "index.html" is appended.
  *
  *  Returns nil if the path escapes the root, does not exist, or is not a file
- *  (after optional index resolution).
+ *  (after optional index resolution). Successful file responses include
+ *  "Accept-Ranges: bytes" (GCD-19).
  *
  *  Intended for embedded hosts (e.g. Mobile Locker PresentationWebServer).
  */

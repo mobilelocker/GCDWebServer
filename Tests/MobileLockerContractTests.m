@@ -250,6 +250,38 @@
   [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
 }
 
+/// GCD-19: plain FileResponse advertises Accept-Ranges without callers setting it.
+- (void)testML_FileResponseIncludesAcceptRangesHeader {
+  NSData* fileData = [@"0123456789" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString* path = [self ml_tempFileWithContents:fileData];
+
+  GCDWebServer* server = [[GCDWebServer alloc] init];
+  [server addHandlerForMethod:@"GET"
+                         path:@"/asset"
+                 requestClass:[GCDWebServerRequest class]
+                 processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
+                   // PresentationWebServer path: FileResponse only — no manual Accept-Ranges.
+                   return [GCDWebServerFileResponse responseWithFile:path byteRange:request.byteRange];
+                 }];
+
+  NSError* startError = nil;
+  BOOL started = [server startWithOptions:[self ml_defaultStartOptions] error:&startError];
+  XCTAssertTrue(started, @"%@", startError);
+
+  NSString* req = [NSString stringWithFormat:
+                               @"GET /asset HTTP/1.1\r\n"
+                               @"Host: localhost\r\n"
+                               @"Connection: close\r\n"
+                               @"\r\n"];
+  NSData* raw = [self ml_rawHTTPOnPort:server.port request:req];
+  XCTAssertEqual([self ml_statusFromRawHTTP:raw], 200);
+  NSString* acceptRanges = [self ml_headerValue:@"Accept-Ranges" fromRawHTTP:raw];
+  XCTAssertEqualObjects(acceptRanges.lowercaseString, @"bytes");
+
+  [server stop];
+  [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+}
+
 /// Video/audio seeking: gzip always-on must not corrupt Range responses (GCD-2).
 - (void)testML_RangedGETWithGzipEnabledReturnsRawPartialContent {
   NSData* fileData = [@"0123456789ABCDEFGHIJ" dataUsingEncoding:NSUTF8StringEncoding];
@@ -262,7 +294,6 @@
                  processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
                    GCDWebServerFileResponse* response = [GCDWebServerFileResponse responseWithFile:path byteRange:request.byteRange];
                    response.gzipContentEncodingEnabled = YES;  // same as PresentationWebServer
-                   [response setValue:@"bytes" forAdditionalHeader:@"Accept-Ranges"];
                    return response;
                  }];
 
