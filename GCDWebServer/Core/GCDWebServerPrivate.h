@@ -27,6 +27,11 @@
 
 #import <os/object.h>
 #import <sys/socket.h>
+#import <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h>
+#endif
+#import <dns_sd.h>
 
 /**
  *  All GCDWebServer headers.
@@ -187,7 +192,53 @@ extern NSString* GCDWebServerStringFromSockAddr(const struct sockaddr* addr, BOO
 - (void)abortForServerStop;
 @end
 
-@interface GCDWebServer ()
+
+// GCD-23: Ivars live in the private class extension so multi-file categories can access them.
+@interface GCDWebServer () {
+  // Public / synthesized properties
+  __weak id<GCDWebServerDelegate> _delegate;
+  NSUInteger _port;
+  NSString* _serverName;
+  BOOL _shouldAutomaticallyMapHEADToGET;
+  dispatch_queue_priority_t _dispatchQueuePriority;
+
+  // Runtime state
+  dispatch_queue_t _syncQueue;
+  dispatch_queue_t _lifecycleQueue;  // GCD-4: serial queue for stop / auto-suspend (never block main)
+  dispatch_group_t _sourceGroup;
+  NSMutableArray<GCDWebServerHandler*>* _handlers;
+  NSInteger _activeConnections;  // Accessed through _syncQueue only
+  NSHashTable<GCDWebServerConnection*>* _activeConnectionSet;  // Weak; accessed through _syncQueue only (GCD-3)
+  BOOL _connected;  // Accessed on main thread only
+  dispatch_block_t _disconnectBlock;  // Accessed on main thread only
+
+  NSDictionary<NSString*, id>* _options;
+  NSMutableDictionary<NSString*, NSString*>* _authenticationBasicAccounts;
+  NSMutableDictionary<NSString*, NSString*>* _authenticationDigestAccounts;
+  NSString* _authenticationRealm;
+  Class _connectionClass;
+  CFTimeInterval _disconnectDelay;
+  dispatch_source_t _source4;
+  dispatch_source_t _source6;
+  CFNetServiceRef _registrationService;
+  CFNetServiceRef _resolutionService;
+  DNSServiceRef _dnsService;
+  CFSocketRef _dnsSocket;
+  CFRunLoopSourceRef _dnsSource;
+  NSString* _dnsAddress;
+  NSUInteger _dnsPort;
+  BOOL _bindToLocalhost;
+  BOOL _enableKeepAlive;  // GCD-7
+  NSUInteger _maxKeepAliveRequests;  // GCD-7
+#if TARGET_OS_IPHONE
+  BOOL _suspendInBackground;
+  UIBackgroundTaskIdentifier _backgroundTask;
+#endif
+#ifdef __GCDWEBSERVER_ENABLE_TESTING__
+  BOOL _recording;
+#endif
+}
+
 @property(nonatomic, readonly) NSMutableArray<GCDWebServerHandler*>* handlers;
 @property(nonatomic, readonly, nullable) NSString* serverName;
 @property(nonatomic, readonly, nullable) NSString* authenticationRealm;
