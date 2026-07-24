@@ -68,11 +68,26 @@ let package = Package(
             name: "GCDWebServerTests",
             dependencies: ["GCDWebServer", "GCDWebDAVServer", "GCDWebUploader"],
             path: "Tests",
+            exclude: [
+                "HTMLFileUpload",
+                "HTMLForm",
+                "Payload.zip",
+                "Sample-Movie.mp4",
+                "WebDAV-Cyberduck",
+                "WebDAV-Finder",
+                "WebDAV-Transmit",
+                "WebServer",
+                "WebServer-Sample-Movie",
+                "WebUploader"
+            ],
             cSettings: [
                 .headerSearchPath("../GCDWebServer/Core"),
                 .headerSearchPath("../GCDWebServer/include"),
                 .headerSearchPath("../GCDWebDAVServer"),
                 .headerSearchPath("../GCDWebUploader")
+            ],
+            linkerSettings: [
+                .linkedLibrary("z")
             ]
         )
     ]
