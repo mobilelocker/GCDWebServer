@@ -856,6 +856,22 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
 
 // http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.25
 // http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.26
+// GCD-21: Normalize entity-tags (strip weak prefix and surrounding quotes) before compare.
+static inline NSString* _GCDWebServerNormalizeETag(NSString* etag) {
+  if (etag.length == 0) {
+    return etag;
+  }
+  NSString* value = [etag stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+  if ([value hasPrefix:@"W/"] || [value hasPrefix:@"w/"]) {
+    value = [value substringFromIndex:2];
+    value = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+  }
+  if (value.length >= 2 && [value hasPrefix:@"\""] && [value hasSuffix:@"\""]) {
+    value = [value substringWithRange:NSMakeRange(1, value.length - 2)];
+  }
+  return value;
+}
+
 static inline BOOL _CompareResources(NSString* responseETag, NSString* requestETag, NSDate* responseLastModified, NSDate* requestLastModified) {
   if (requestLastModified && responseLastModified) {
     if ([responseLastModified compare:requestLastModified] != NSOrderedDescending) {
@@ -866,8 +882,13 @@ static inline BOOL _CompareResources(NSString* responseETag, NSString* requestET
     if ([requestETag isEqualToString:@"*"]) {
       return YES;
     }
-    if ([responseETag isEqualToString:requestETag]) {
-      return YES;
+    // If-None-Match may be a comma-separated list of entity-tags.
+    NSString* normalizedResponse = _GCDWebServerNormalizeETag(responseETag);
+    NSArray<NSString*>* candidates = [requestETag componentsSeparatedByString:@","];
+    for (NSString* candidate in candidates) {
+      if ([_GCDWebServerNormalizeETag(candidate) isEqualToString:normalizedResponse]) {
+        return YES;
+      }
     }
   }
   return NO;
