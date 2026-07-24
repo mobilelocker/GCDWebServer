@@ -431,6 +431,28 @@ NS_ASSUME_NONNULL_END
   return GCDWebServerStringFromSockAddr(_remoteAddressData.bytes, YES);
 }
 
+- (void)abortForServerStop {
+  GCDWebServerCompletionBlock pending = nil;
+  @synchronized(self) {
+    if (_abortedForStop) {
+      return;
+    }
+    _abortedForStop = YES;
+    if (!_processCompletionInvoked && _pendingProcessCompletion) {
+      pending = _pendingProcessCompletion;
+    }
+  }
+  GWS_LOG_DEBUG(@"Aborting connection on socket %i for server stop", _socket);
+  // Force-complete async handlers so they cannot hang after stop (MLI-1575 / GCD-3).
+  if (pending) {
+    pending([GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_ServiceUnavailable]);
+  }
+  // Tear down the TCP stream so any in-flight dispatch_read/write fails promptly.
+  if (_socket >= 0) {
+    shutdown(_socket, SHUT_RDWR);
+  }
+}
+
 - (void)dealloc {
   int result = close(_socket);
   if (result != 0) {
@@ -826,28 +848,6 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
     _pendingProcessCompletion = once;
   }
   _handler.asyncProcessBlock(request, once);
-}
-
-- (void)abortForServerStop {
-  GCDWebServerCompletionBlock pending = nil;
-  @synchronized(self) {
-    if (_abortedForStop) {
-      return;
-    }
-    _abortedForStop = YES;
-    if (!_processCompletionInvoked && _pendingProcessCompletion) {
-      pending = _pendingProcessCompletion;
-    }
-  }
-  GWS_LOG_DEBUG(@"Aborting connection on socket %i for server stop", _socket);
-  // Force-complete async handlers so they cannot hang after stop (MLI-1575 / GCD-3).
-  if (pending) {
-    pending([GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_ServiceUnavailable]);
-  }
-  // Tear down the TCP stream so any in-flight dispatch_read/write fails promptly.
-  if (_socket >= 0) {
-    shutdown(_socket, SHUT_RDWR);
-  }
 }
 
 // http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.25

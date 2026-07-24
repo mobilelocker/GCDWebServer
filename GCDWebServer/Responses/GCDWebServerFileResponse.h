@@ -92,9 +92,9 @@ NS_ASSUME_NONNULL_BEGIN
  *  of the current GCDWebServerRequest.
  *
  *  If the range is unsatisfiable after clamping (zero length), returns a response
- *  with status 416 Requested Range Not Satisfiable and
- *  `Content-Range: bytes */{file length}` (RFC 7233). Returns nil only if the
- *  path is not a regular file.
+ *  with status 416 Requested Range Not Satisfiable and the corresponding
+ *  Content-Range header per RFC 7233. Returns nil only if the path is not a
+ *  regular file.
  */
 - (nullable instancetype)initWithFile:(NSString*)path byteRange:(NSRange)range;
 

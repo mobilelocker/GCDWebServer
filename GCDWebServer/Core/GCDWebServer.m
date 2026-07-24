@@ -716,7 +716,7 @@ static inline NSString* _EncodeBase64(NSString* string) {
 
   // GCD-3: Abort open connections (force async completions + shutdown sockets) before
   // tearing down the accept sources so stop cannot leave hung handlers.
-  NSArray<GCDWebServerConnection*>* connectionsToAbort = nil;
+  __block NSArray<GCDWebServerConnection*>* connectionsToAbort = nil;
   dispatch_sync(_syncQueue, ^{
     connectionsToAbort = [self->_activeConnectionSet allObjects];
   });

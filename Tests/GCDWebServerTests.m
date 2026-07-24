@@ -117,7 +117,9 @@
                    return response;
                  }];
   NSError* startError = nil;
-  XCTAssertTrue([server startWithOptions:@{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES} error:&startError], @"%@", startError);
+  NSDictionary* options = @{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES};
+  BOOL started = [server startWithOptions:options error:&startError];
+  XCTAssertTrue(started, @"Server failed to start: %@", startError);
   NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%lu/file", (unsigned long)server.port]];
   NSMutableURLRequest* req = [NSMutableURLRequest requestWithURL:url];
   [req setValue:@"bytes=0-4" forHTTPHeaderField:@"Range"];
@@ -155,7 +157,9 @@
                           return [GCDWebServerDataResponse responseWithText:@"ok"];
                         }];
   NSError* startError = nil;
-  XCTAssertTrue([server startWithOptions:@{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES} error:&startError], @"%@", startError);
+  NSDictionary* options = @{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES};
+  BOOL started = [server startWithOptions:options error:&startError];
+  XCTAssertTrue(started, @"Server failed to start: %@", startError);
   NSURL* local = server.localhostServerURL;
   XCTAssertNotNil(local);
   XCTAssertEqualObjects(local.host, @"localhost");
@@ -176,7 +180,9 @@
             [processStarted fulfill];
           }];
   NSError* startError = nil;
-  XCTAssertTrue([server startWithOptions:@{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES} error:&startError], @"%@", startError);
+  NSDictionary* options = @{GCDWebServerOption_Port: @0, GCDWebServerOption_BindToLocalhost: @YES};
+  BOOL started = [server startWithOptions:options error:&startError];
+  XCTAssertTrue(started, @"Server failed to start: %@", startError);
   NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%lu/hold", (unsigned long)server.port]];
   XCTestExpectation* clientDone = [self expectationWithDescription:@"client"];
   [[NSURLSession.sharedSession dataTaskWithRequest:[NSURLRequest requestWithURL:url]
