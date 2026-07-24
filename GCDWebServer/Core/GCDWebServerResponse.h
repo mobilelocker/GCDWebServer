@@ -126,12 +126,29 @@ typedef void (^GCDWebServerBodyReaderCompletionBlock)(NSData* _Nullable data, NS
 @property(nonatomic) NSInteger statusCode;
 
 /**
+ *  GCD-27: Explicit Cache-Control policy for the response.
+ *  When MaxAge, Connection emits max-age=N from cacheControlMaxAge.
+ *  NoCache (default) emits no-cache; NoStore emits no-store.
+ *  Hosts that only set cacheControlMaxAge keep working: maxAge > 0 is treated as MaxAge at write time if policy is still NoCache.
+ */
+typedef NS_ENUM(NSInteger, GCDWebServerCachePolicy) {
+  GCDWebServerCachePolicyNoCache = 0,
+  GCDWebServerCachePolicyNoStore = 1,
+  GCDWebServerCachePolicyMaxAge = 2,
+};
+
+/**
  *  Sets the caching hint for the response using the "Cache-Control" header.
  *  This value is expressed in seconds.
  *
  *  The default value is 0 i.e. "no-cache".
  */
 @property(nonatomic) NSUInteger cacheControlMaxAge;
+
+/**
+ *  GCD-27: Cache-Control policy. Default is NoCache.
+ */
+@property(nonatomic) GCDWebServerCachePolicy cachePolicy;
 
 /**
  *  Sets the last modified date for the response using the "Last-Modified" header.
@@ -146,6 +163,12 @@ typedef void (^GCDWebServerBodyReaderCompletionBlock)(NSData* _Nullable data, NS
  *  The default value is nil.
  */
 @property(nonatomic, copy, nullable) NSString* eTag;
+
+/**
+ *  GCD-27: When YES, do not write the ETag header and do not use ETag for 304 matching.
+ *  Default is NO. Last-Modified may still produce 304.
+ */
+@property(nonatomic) BOOL suppressETag;
 
 /**
  *  Enables gzip encoding for the response body.

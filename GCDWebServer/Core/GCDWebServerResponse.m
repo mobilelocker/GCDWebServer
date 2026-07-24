@@ -164,6 +164,8 @@
     _contentLength = NSUIntegerMax;
     _statusCode = kGCDWebServerHTTPStatusCode_OK;
     _cacheControlMaxAge = 0;
+    _cachePolicy = GCDWebServerCachePolicyNoCache;
+    _suppressETag = NO;
     _additionalHeaders = [[NSMutableDictionary alloc] init];
     _encoders = [[NSMutableArray alloc] init];
   }

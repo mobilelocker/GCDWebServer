@@ -215,14 +215,27 @@ NS_ASSUME_NONNULL_END
     if (_response.lastModifiedDate) {
       CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Last-Modified"), (__bridge CFStringRef)GCDWebServerFormatRFC822((NSDate*)_response.lastModifiedDate));
     }
-    if (_response.eTag) {
+    // GCD-27: optional ETag suppress for always-fresh hosts.
+    if (_response.eTag && !_response.suppressETag) {
       CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("ETag"), (__bridge CFStringRef)_response.eTag);
     }
     if ((_response.statusCode >= 200) && (_response.statusCode < 300)) {
-      if (_response.cacheControlMaxAge > 0) {
-        CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Cache-Control"), (__bridge CFStringRef)[NSString stringWithFormat:@"max-age=%i, public", (int)_response.cacheControlMaxAge]);
-      } else {
-        CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Cache-Control"), CFSTR("no-cache"));
+      // Backward compatible: cacheControlMaxAge > 0 with default NoCache still emits max-age.
+      GCDWebServerCachePolicy policy = _response.cachePolicy;
+      if (policy == GCDWebServerCachePolicyNoCache && _response.cacheControlMaxAge > 0) {
+        policy = GCDWebServerCachePolicyMaxAge;
+      }
+      switch (policy) {
+        case GCDWebServerCachePolicyNoStore:
+          CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Cache-Control"), CFSTR("no-store"));
+          break;
+        case GCDWebServerCachePolicyMaxAge:
+          CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Cache-Control"), (__bridge CFStringRef)[NSString stringWithFormat:@"max-age=%i, public", (int)_response.cacheControlMaxAge]);
+          break;
+        case GCDWebServerCachePolicyNoCache:
+        default:
+          CFHTTPMessageSetHeaderFieldValue(_responseMessage, CFSTR("Cache-Control"), CFSTR("no-cache"));
+          break;
       }
     }
     if (_response.contentType != nil) {
@@ -895,12 +908,18 @@ static inline BOOL _CompareResources(NSString* responseETag, NSString* requestET
 }
 
 - (GCDWebServerResponse*)overrideResponse:(GCDWebServerResponse*)response forRequest:(GCDWebServerRequest*)request {
-  if ((response.statusCode >= 200) && (response.statusCode < 300) && _CompareResources(response.eTag, request.ifNoneMatch, response.lastModifiedDate, request.ifModifiedSince)) {
+  // GCD-27: suppressETag excludes entity-tag from conditional matching (Last-Modified may still 304).
+  NSString* etagForCompare = response.suppressETag ? nil : response.eTag;
+  if ((response.statusCode >= 200) && (response.statusCode < 300) && _CompareResources(etagForCompare, request.ifNoneMatch, response.lastModifiedDate, request.ifModifiedSince)) {
     NSInteger code = [request.method isEqualToString:@"HEAD"] || [request.method isEqualToString:@"GET"] ? kGCDWebServerHTTPStatusCode_NotModified : kGCDWebServerHTTPStatusCode_PreconditionFailed;
     GCDWebServerResponse* newResponse = [GCDWebServerResponse responseWithStatusCode:code];
     newResponse.cacheControlMaxAge = response.cacheControlMaxAge;
+    newResponse.cachePolicy = response.cachePolicy;
+    newResponse.suppressETag = response.suppressETag;
     newResponse.lastModifiedDate = response.lastModifiedDate;
-    newResponse.eTag = response.eTag;
+    if (!response.suppressETag) {
+      newResponse.eTag = response.eTag;
+    }
     GWS_DCHECK(newResponse);
     return newResponse;
   }
