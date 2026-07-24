@@ -185,6 +185,10 @@ NS_ASSUME_NONNULL_END
     response = [self overrideResponse:response forRequest:_request];
   }
   if (response) {
+    // GCD-20: Only apply response-level gzip when the client advertises Accept-Encoding: gzip.
+    if (response.gzipContentEncodingEnabled && _request && !_request.acceptsGzipContentEncoding) {
+      response.gzipContentEncodingEnabled = NO;
+    }
     if ([response hasBody]) {
       [response prepareForReading];
       hasBody = !_virtualHEAD;
