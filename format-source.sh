@@ -40,6 +40,6 @@ pushd "Mac"
 clang-format -style=file -i *.m
 popd
 
-build/swiftformat --indent 2 "iOS" "tvOS"
+build/swiftformat --indent 2 "iOS"
 
 echo "OK"

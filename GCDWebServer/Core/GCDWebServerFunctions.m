@@ -30,11 +30,7 @@
 #endif
 
 #import <TargetConditionals.h>
-#if TARGET_OS_IPHONE
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#else
-#import <CoreServices/CoreServices.h>
-#endif
 #import <CommonCrypto/CommonDigest.h>
 
 #import <arpa/inet.h>
@@ -244,16 +240,7 @@ NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension, NSDictionary<
       mimeType = [_GCDWebServerBuiltInMimeOverrides() objectForKey:extension];
     }
     if (mimeType == nil) {
-#if TARGET_OS_IPHONE
       mimeType = [UTType typeWithFilenameExtension:extension].preferredMIMEType;
-#else
-      // macOS test-runner path — remove when Mac Xcode target is retired
-      CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)extension, NULL);
-      if (uti) {
-        mimeType = CFBridgingRelease(UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType));
-        CFRelease(uti);
-      }
-#endif
     }
   }
   mimeType = mimeType ? mimeType : kGCDWebServerDefaultMimeType;
