@@ -560,6 +560,22 @@ extern NSString* const GCDWebServerAuthenticationMethod_DigestAccess;
  */
 - (void)addHandlerForMethod:(NSString*)method pathRegex:(NSString*)regex requestClass:(Class)aClass asyncProcessBlock:(GCDWebServerAsyncProcessBlock)block;
 
+/**
+ *  GCD-28: Register an exact-path handler (O(1) lookup). Case-insensitive path.
+ *  Checked before prefix maps and before legacy LIFO matchBlock handlers.
+ *  Does not participate in the LIFO array; later exact registration for the same
+ *  method+path replaces the previous one.
+ */
+- (void)addHandlerForMethod:(NSString*)method exactPath:(NSString*)path requestClass:(Class)aClass processBlock:(GCDWebServerProcessBlock)block;
+- (void)addHandlerForMethod:(NSString*)method exactPath:(NSString*)path requestClass:(Class)aClass asyncProcessBlock:(GCDWebServerAsyncProcessBlock)block;
+
+/**
+ *  GCD-28: Register a path-prefix handler. Among prefixes, newest wins (LIFO).
+ *  Checked after exact paths and before legacy LIFO matchBlock handlers.
+ */
+- (void)addHandlerForMethod:(NSString*)method pathPrefix:(NSString*)prefix requestClass:(Class)aClass processBlock:(GCDWebServerProcessBlock)block;
+- (void)addHandlerForMethod:(NSString*)method pathPrefix:(NSString*)prefix requestClass:(Class)aClass asyncProcessBlock:(GCDWebServerAsyncProcessBlock)block;
+
 @end
 
 /**

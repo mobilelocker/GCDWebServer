@@ -361,11 +361,21 @@ NS_ASSUME_NONNULL_END
           NSString* queryString = requestURL ? CFBridgingRelease(CFURLCopyQueryString((CFURLRef)requestURL, NULL)) : nil;  // Don't use -[NSURL query] to make sure query is not unescaped;
           NSDictionary* requestQuery = queryString ? GCDWebServerParseURLEncodedForm(queryString) : @{};
           if (requestMethod && requestURL && requestHeaders && requestPath && requestQuery) {
-            for (self->_handler in self->_server.handlers) {
-              self->_request = self->_handler.matchBlock(requestMethod, requestURL, requestHeaders, requestPath, requestQuery);
-              if (self->_request) {
-                break;
-              }
+            // GCD-28: exact → prefix → LIFO matchBlocks.
+            GCDWebServerHandler* matchedHandler = nil;
+            GCDWebServerRequest* matchedRequest = nil;
+            if ([self->_server matchHandlerForMethod:requestMethod
+                                                 url:requestURL
+                                             headers:requestHeaders
+                                                path:requestPath
+                                               query:requestQuery
+                                             handler:&matchedHandler
+                                             request:&matchedRequest]) {
+              self->_handler = matchedHandler;
+              self->_request = matchedRequest;
+            } else {
+              self->_handler = nil;
+              self->_request = nil;
             }
             if (self->_request) {
               self->_request.localAddressData = self.localAddressData;

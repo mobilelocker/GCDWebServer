@@ -80,6 +80,7 @@ Also:
 - GCD-25: `addGETHandlerForDocumentRoot:…` + `GCDWebServerStaticGzipPolicy` for safe static hosting (entry fallback, selective gzip, no directory listing)
 - GCD-26: `addGETHandlerForBasePath` uses safe `responseWithFileUnderRoot` (directory listing preserved when no index)
 - GCD-27: `GCDWebServerCachePolicy` + `suppressETag` on responses (`no-cache` / `no-store` / `max-age`)
+- GCD-28: exact-path and path-prefix handler maps (checked before LIFO matchBlocks)
 
 ### 3.5.8
 - Revert Bonjour to CFNetService (NSNetService not visible with iOS 18 deployment target)
