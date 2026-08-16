@@ -1,7 +1,7 @@
 > **This is a Mobile Locker fork** of [swisspol/GCDWebServer](https://github.com/swisspol/GCDWebServer).
-> Hosted on **Bitbucket**: [vorenusventures/mobilelocker-gcdwebserver](https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver).
+> Hosted on **GitHub**: [mobilelocker/GCDWebServer](https://github.com/mobilelocker/GCDWebServer).
 > It targets **iOS 18+** only. See [Changelog](#changelog) for what changed.
-> Issues are tracked in Jira project **GCD** (not GitHub).
+> Issues are tracked in Jira project **GCD** (not GitHub Issues).
 
 ---
 
@@ -48,14 +48,14 @@ Installation (Swift Package Manager)
 
 **Preferred distribution for this fork.** CocoaPods is not supported (stale podspec retained only for reference).
 
-Add to your Xcode project or `Package.swift` using the Bitbucket repo:
+Add to your Xcode project or `Package.swift` using the GitHub repo:
 
 ```swift
-// SSH (recommended for private Bitbucket)
-.package(url: "git@bitbucket.org:vorenusventures/mobilelocker-gcdwebserver.git", from: "4.0.0")
+// HTTPS (matches other Mobile Locker GitHub packages)
+.package(url: "https://github.com/mobilelocker/GCDWebServer.git", from: "4.0.1")
 
-// Or HTTPS
-.package(url: "https://bitbucket.org/vorenusventures/mobilelocker-gcdwebserver.git", from: "4.0.0")
+// Or SSH
+.package(url: "git@github.com:mobilelocker/GCDWebServer.git", from: "4.0.1")
 ```
 
 Available products: `GCDWebServer`, `GCDWebDAVServer`, `GCDWebUploader`.
@@ -76,12 +76,9 @@ Open `Package.swift` in Xcode (not the demo `.xcodeproj`) and use Product → Te
 Changelog
 =========
 
-### 4.0.1 (iOS-only cleanup — GCD-34)
-- Removed macOS and tvOS sample apps, Xcode targets, and schemes
-- Dropped Mac CLI fixture integration harness and recorded request/response corpora
-- Library sources assume iOS (UIKit, UniformTypeIdentifiers); non-iOS `#if` fallbacks removed
-- Xcode iOS deployment targets aligned to 18.0 to match `Package.swift`
-- `Run-Tests.sh` runs SPM package tests on the iOS Simulator
+### 4.0.1 (GCD-35)
+- Rewrite gzip MIME doc comment so Clang no longer warns about `/*` inside a block comment
+- Canonical host is GitHub `mobilelocker/GCDWebServer`
 
 ### 4.0.0 (reliability for Mobile Locker presentations)
 Breaking / notable for consumers:
@@ -96,7 +93,8 @@ Also:
 - GCD-5: BindToLocalhost docs; recommend loopback for embedded WKWebView servers
 - GCD-6: Swift 6 concurrency notes on handler/delegate queues
 - GCD-8: Expanded tests + Bitbucket Pipelines scaffold
-- GCD-10: Bitbucket SPM is the distribution channel; CocoaPods unsupported
+- GCD-10: SPM is the distribution channel; CocoaPods unsupported
+- GCD-34: iOS-only cleanup — removed macOS/tvOS sample apps, Mac CLI fixtures, and non-iOS `#if` fallbacks
 - GCD-11: Bonjour still CFNetService (deprecated); leave disabled for embedded servers
 - GCD-25: `addGETHandlerForDocumentRoot:…` + `GCDWebServerStaticGzipPolicy` for safe static hosting (entry fallback, selective gzip, no directory listing)
 - GCD-26: `addGETHandlerForBasePath` uses safe `responseWithFileUnderRoot` (directory listing preserved when no index)

@@ -601,9 +601,9 @@ typedef NS_ENUM(NSInteger, GCDWebServerStaticGzipPolicy) {
   /** Never enable gzip on the file response. */
   GCDWebServerStaticGzipPolicyNever = 0,
   /**
-   *  Enable gzip for text-like MIME types only: any text/* media type, plus
-   *  application/javascript, application/x-javascript, text/javascript,
-   *  application/json, application/ld+json, application/xml,
+   *  Enable gzip for text-like MIME types only: any media type whose type is
+   *  "text", plus application/javascript, application/x-javascript,
+   *  text/javascript, application/json, application/ld+json, application/xml,
    *  application/xhtml+xml, image/svg+xml, application/manifest+json.
    *  Library still skips gzip on HTTP 206 / Content-Range.
    */
